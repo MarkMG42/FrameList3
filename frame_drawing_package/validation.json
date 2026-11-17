@@ -1,5 +1,5 @@
 {
-  "version": "FrameDrawingPackage P2.1",
+  "version": "FrameDrawingPackage P2.2",
   "grammar": {
     "reports": [
       {
@@ -14,7 +14,7 @@
       },
       {
         "file": "FrameDrawingPackage.txt",
-        "sha256": "ff4c40f306c5c1642591d776eecc4d40cebb0c72279a743449d691c473ec3a73",
+        "sha256": "f42d5fefdc5745137081f5776e160d83999a3210ec7e73fb3e9f41af89e82a1f",
         "errors": []
       },
       {
@@ -24,7 +24,7 @@
       },
       {
         "file": "InsertWeldWithHoles.txt",
-        "sha256": "ff412ffe9510797597b0c82ceabac0b42fd8e8e4a1ba399d6e5a3dd16b1ffedf",
+        "sha256": "39d6dab5835467591c4d49cc11eac714ba4375e9df6305eaf075a9afa5cec628",
         "errors": []
       }
     ],
@@ -40,7 +40,8 @@
     "explicit_require_calls_checked": 102,
     "cross_module_contracts_checked": true,
     "isometry_fit_after_dimensions_checked": true,
-    "cutlist_on_sheet_required_checked": true,
+    "cutlist_matches_user_reference_outside_sheet_checked": true,
+    "drill_arrangement_matches_user_reference_checked": true,
     "break_threshold_m": 0.9,
     "mounting_display_and_captions_checked": true,
     "display_state_binding_checked": true,
@@ -695,10 +696,10 @@
   "native_solidworks_run": false,
   "source_sha256": {
     "FrameCutListDimensionsV3.txt": "d0171e3ba398430023bc26ed0cb40524529c5cf3b6557f33a2a14b8f8baa5350",
-    "FrameDrawingPackage.txt": "ff4c40f306c5c1642591d776eecc4d40cebb0c72279a743449d691c473ec3a73",
+    "FrameDrawingPackage.txt": "f42d5fefdc5745137081f5776e160d83999a3210ec7e73fb3e9f41af89e82a1f",
     "FrameAutoSize.txt": "e807668d1605e87f36b2c73ac0d4bf4abad6c7a6977a6928acdd4f06b2a2ccd0",
     "FramePackageSupport.txt": "434ec63ce632020ed5b8c699ae16af7a69f227b1ccf7fc7ff2d4e0102f3e3078",
-    "InsertWeldWithHoles.txt": "ff412ffe9510797597b0c82ceabac0b42fd8e8e4a1ba399d6e5a3dd16b1ffedf"
+    "InsertWeldWithHoles.txt": "39d6dab5835467591c4d49cc11eac714ba4375e9df6305eaf075a9afa5cec628"
   },
   "internal_network_template_path_removed": true,
   "corporate_cutlist_template": "Set TABLE_TEMPLATE locally in your SWP; standard installed template lookup retained",

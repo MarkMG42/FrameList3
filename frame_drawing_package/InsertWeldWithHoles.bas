@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R35_CHANNEL_LENGTH_20261105"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R35_CHANNEL_LENGTH_PACKAGE_P22"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = True
@@ -219,13 +219,13 @@ Private Sub RunCore()
     Else
         tableTemplate = TryResolveTableTemplate(tableWarning)
         If Len(tableTemplate) > 0 Then
-            If TryInsertCutList(source, config, width, height, tableTemplate, tableWarning) = False Then Fail "Не создан список вырезов: " & tableWarning
+            If TryInsertOutsideCutList(source, config, width, height, tableTemplate, tableWarning) = False Then Fail "Не создан список вырезов: " & tableWarning
         Else
             Fail "Не найден шаблон списка вырезов: " & tableWarning
         End If
     End If
     If madeTableReady Then
-        If TrySortCutList(tableWarning) = False Then Fail "Не выполнена сортировка списка вырезов: " & tableWarning
+        If TrySortCutList(tableWarning) = False Then WriteLog "Сортировка таблицы: " & tableWarning
     End If
     If madeTableReady = False Then
         Fail "Таблица списка вырезов не создана; связанные позиции обязательны."
@@ -239,7 +239,6 @@ Private Sub RunCore()
     WriteLog "Время: виды=" & Format$(ElapsedSeconds(phaseStart), "0.00") & " с"
     phaseStart = Timer
     If madeTableReady And completed > 0 Then AlignDetailsWithCutList
-    PlaceAndValidateCutList source, width, height
     If AUTO_DIMENSIONS And completed > 0 Then
         DimensionAndArrange width, height
     ElseIf completed > 0 Then
@@ -251,8 +250,6 @@ Private Sub RunCore()
         AddPositions
         AddSourcePositions source, config
     End If
-    PlaceAndValidateCutList source, width, height
-    ValidateDrillingRegions source, width, height
     WriteLog "Время: позиции=" & Format$(ElapsedSeconds(phaseStart), "0.00") & " с; всего=" & _
              Format$(ElapsedSeconds(runStart), "0.00") & " с"
     runCompleted = True
@@ -296,10 +293,7 @@ Private Sub RunCore()
             If i <= 3 Then message = message & vbCrLf & CStr(orientationWarnings(i))
         Next i
     End If
-    If completed = 0 Then
-        cleanup = CleanupTable()
-        If Len(cleanup) > 0 Then message = message & vbCrLf & cleanup
-    End If
+    ' A valid table is retained even if no drilling views were needed.
     message = message & vbCrLf & "Документы не сохранены. Проверьте результат перед сохранением."
     GoTo Finished
 Failed:
@@ -622,7 +616,7 @@ Private Function FindSheetCutList() As SldWorks.WeldmentCutListAnnotation
     Loop
 End Function
 
-Private Function TryInsertCutList(ByVal source As SldWorks.View, ByVal config As String, _
+Private Function TryInsertOutsideCutList(ByVal source As SldWorks.View, ByVal config As String, _
                                          ByVal sheetWidth As Double, ByVal sheetHeight As Double, _
                                          ByVal tableTemplate As String, ByRef warning As String) As Boolean
     Dim table As SldWorks.TableAnnotation, annotation As SldWorks.Annotation
@@ -630,8 +624,8 @@ Private Function TryInsertCutList(ByVal source As SldWorks.View, ByVal config As
     Dim candidates As Collection, candidate As Variant, seen As Object
     Dim errorNumber As Long, errorDescription As String, cleanup As String
     On Error GoTo Failed
-    MarkStage "Вставка таблицы списка вырезов"
-    x = SIDE_MARGIN
+    MarkStage "Вставка таблицы списка вырезов за правой границей листа"
+    x = sheetWidth + SIDE_MARGIN
     y = sheetHeight - SIDE_MARGIN
     Set candidates = New Collection
     Set seen = CreateObject("Scripting.Dictionary")
@@ -670,17 +664,16 @@ Private Function TryInsertCutList(ByVal source As SldWorks.View, ByVal config As
     table.Anchored = False
     Set annotation = table.GetAnnotation
     If annotation Is Nothing Then Fail "Таблица не вернула аннотацию для размещения."
-    table.AnchorType = swBOMConfigurationAnchor_TopLeft
-    If annotation.SetPosition2(x, y, 0#) = False Then Fail "Не удалось разместить таблицу на листе."
+    If annotation.SetPosition2(x, y, 0#) = False Then Fail "Не удалось разместить таблицу вне листа."
     drawingModel.EditRebuild3
     position = annotation.GetPosition
     If HasItems(position) = False Then Fail "Таблица не вернула положение."
     If LBound(position) <> 0 Or UBound(position) < 1 Then Fail "Неполное положение таблицы."
-    If CDbl(position(0)) < 0# Or CDbl(position(0)) > sheetWidth Then Fail "Таблица оказалась вне листа."
+    If CDbl(position(0)) < sheetWidth Then Fail "Таблица осталась на листе."
     If table.RowCount < 2 Then Fail "Таблица списка вырезов не содержит позиций."
     WriteLog "Список вырезов: строк=" & CStr(table.RowCount) & "; X=" & CStr(CDbl(position(0)))
     madeTableReady = True
-    TryInsertCutList = True
+    TryInsertOutsideCutList = True
     Exit Function
 Failed:
     madeTableReady = False
@@ -735,52 +728,6 @@ Private Function CutListBefore(ByVal rank As Long, ByVal length As Double, _
         CutListBefore = (length > previousLength)
     End If
 End Function
-
-Private Function CutListBox() As Variant
-    Dim table As SldWorks.TableAnnotation, annotation As SldWorks.Annotation, position As Variant
-    Dim width As Double, height As Double, i As Long
-    Set table = madeTable: Set annotation = table.GetAnnotation
-    position = annotation.GetPosition
-    For i = 0 To table.ColumnCount - 1: width = width + table.GetColumnWidth(i): Next i
-    For i = 0 To table.RowCount - 1: height = height + table.GetRowHeight(i): Next i
-    If width <= EPS Or height <= EPS Then Fail "Не определён размер таблицы списка вырезов."
-    CutListBox = Array(CDbl(position(0)), CDbl(position(1)) - height, CDbl(position(0)) + width, CDbl(position(1)))
-End Function
-
-Private Function BoxesOverlap(ByVal a As Variant, ByVal b As Variant, ByVal gap As Double) As Boolean
-    BoxesOverlap = Not (a(2) + gap <= b(0) Or b(2) + gap <= a(0) Or a(3) + gap <= b(1) Or b(3) + gap <= a(1))
-End Function
-
-Private Sub PlaceAndValidateCutList(ByVal source As SldWorks.View, ByVal sheetWidth As Double, ByVal sheetHeight As Double)
-    Dim table As SldWorks.TableAnnotation, annotation As SldWorks.Annotation, box As Variant
-    Dim width As Double, height As Double
-    If madeTableReady = False Then Fail "Нет обязательной таблицы списка вырезов."
-    Set table = madeTable
-    table.Anchored = False: table.AnchorType = swBOMConfigurationAnchor_TopLeft
-    box = CutListBox(): width = box(2) - box(0): height = box(3) - box(1)
-    If width > sheetWidth - 2# * SIDE_MARGIN Or height > sheetHeight - BOTTOM_MARGIN - SIDE_MARGIN Then _
-        Fail "Таблица списка вырезов не помещается в рамке; нужен больший формат или более узкий шаблон таблицы."
-    Set annotation = table.GetAnnotation
-    If annotation.SetPosition2(sheetWidth - SIDE_MARGIN - width, BOTTOM_MARGIN + height, 0#) = False Then _
-        Fail "Не размещена таблица списка вырезов справа над основной надписью."
-    drawingModel.EditRebuild3
-    box = CutListBox()
-    If OutlineInLayout(box, sheetWidth, sheetHeight) = False Then Fail "Список вырезов вышел за рамку листа."
-    If BoxesOverlap(box, ReadOutline(source), 0.005) Then _
-        dimensionWarnings.Add "Список вырезов пересекается с исходной изометрией; нужен больший формат или более узкая таблица."
-End Sub
-
-Private Sub ValidateDrillingRegions(ByVal source As SldWorks.View, ByVal sheetWidth As Double, ByVal sheetHeight As Double)
-    Dim view As SldWorks.View, box As Variant, sourceBox As Variant, tableBox As Variant, i As Long
-    sourceBox = ReadOutline(source): tableBox = CutListBox()
-    For i = 1 To madeViews.Count
-        Set view = madeViews(i)
-        box = FramePackageSupport.AnnotatedViewBox(view)
-        If OutlineInLayout(box, sheetWidth, sheetHeight) = False Then dimensionsOutside = dimensionsOutside + 1
-        If BoxesOverlap(box, tableBox, 0.003) Or BoxesOverlap(box, sourceBox, 0.003) Then _
-            dimensionWarnings.Add "Оформление вида [" & view.GetName2 & "] пересекается с таблицей или изометрией; нужен больший формат."
-    Next i
-End Sub
 
 Private Function TrySortCutList(ByRef warning As String) As Boolean
     Dim table As SldWorks.TableAnnotation, row As Long, column As Long, firstRow As Long, lastRow As Long
@@ -1484,28 +1431,14 @@ End Sub
 Private Sub DimensionAndArrange(ByVal sheetWidth As Double, ByVal sheetHeight As Double)
     Dim view As SldWorks.View, i As Long, cursorY As Double, box As Variant
     Dim errorText As String, remainder As Long, targetX As Double, placeLeft As Boolean
-    Dim leftY As Double, rightY As Double, leftFloor As Double, rightFloor As Double, tableBox As Variant, sourceBox As Variant
-    Dim estimate As Double, half As Double
     On Error GoTo Failed
     MarkStage "Размеры VBA: обработка созданных видов"
     cursorY = sheetHeight - SIDE_MARGIN
-    leftY = cursorY: rightY = cursorY: leftFloor = BOTTOM_MARGIN: rightFloor = BOTTOM_MARGIN: half = sheetWidth / 2#
-    tableBox = CutListBox(): sourceBox = ReadOutline(packageSource)
-    If sourceBox(0) < half Then leftFloor = sourceBox(3) + 0.01
-    If sourceBox(2) > half Then rightFloor = sourceBox(3) + 0.01
-    If tableBox(0) < half And tableBox(3) + 0.01 > leftFloor Then leftFloor = tableBox(3) + 0.01
-    If tableBox(2) > half And tableBox(3) + 0.01 > rightFloor Then rightFloor = tableBox(3) + 0.01
     ' Complete ALL body views first; then select and dimension one view at a time.
     For i = 1 To madeViews.Count
         Set view = madeViews(i)
-        box = ReadOutline(view): estimate = box(3) - box(1) + 0.025
         placeLeft = (i = 1)
-        If i > 1 And rightY - estimate < rightFloor And leftY - estimate >= leftFloor Then placeLeft = True
-        If placeLeft Then
-            targetX = SIDE_MARGIN + BALLOON_LEFT_OFFSET: cursorY = leftY
-        Else
-            targetX = sheetWidth - SIDE_MARGIN: cursorY = rightY
-        End If
+        If placeLeft Then targetX = SIDE_MARGIN + BALLOON_LEFT_OFFSET Else targetX = sheetWidth - SIDE_MARGIN
         currentView = view.GetName2
         currentBody = "DIMENSIONS " & CStr(i)
         currentDirection = 0
@@ -1513,12 +1446,11 @@ Private Sub DimensionAndArrange(ByVal sheetWidth As Double, ByVal sheetHeight As
             dimensionsCompleted = dimensionsCompleted + 1
             ' The strict engine already placed/rebuilt/revalidated this view. Do not move it again.
             If OutlineInLayout(box, sheetWidth, sheetHeight) = False Then dimensionsOutside = dimensionsOutside + 1
-            If placeLeft Then leftY = box(1) - GAP Else rightY = box(1) - GAP
+            If placeLeft = False Then cursorY = box(1) - GAP
         Else
             dimensionsFailed = dimensionsFailed + 1
             MarkStage "Компоновка вида без подтверждённых размеров"
             PlaceDimensionBox view, box, cursorY, sheetWidth, sheetHeight, placeLeft
-            If placeLeft Then leftY = box(1) - GAP Else rightY = box(1) - GAP
         End If
     Next i
     Exit Sub
