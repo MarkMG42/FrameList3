@@ -1,0 +1,28 @@
+{
+  "provided_inputs": [
+    {
+      "file": "InsertWeldWithHoles.bas",
+      "bytes": 179716,
+      "sha256": "bd15ff180af8abded8f55f83d42db7013e7e602291268da145170b5cc050afa3"
+    },
+    {
+      "file": "FrameCutListDimensions.bas",
+      "bytes": 83214,
+      "sha256": "882e0024dc8199c7c76cfa52a813ce55cafc2cf4dccea57bcfeedf46bd426e2f"
+    },
+    {
+      "file": "FrameAutoSize.bas",
+      "bytes": 57524,
+      "sha256": "fe0a26dd518520f0295c2dc2e97f99ccd60a2e7c8702ac41da452b2bf5566ebf"
+    },
+    {
+      "file": "Авторазмер Рамы.swp",
+      "bytes": 535040,
+      "sha256": "ff7b06156ecb964154e6f77b939f376fbcbd22a06accad5f84f976b2da305f13"
+    }
+  ],
+  "embedded_cutlist_equals_provided_ignoring_case": true,
+  "host_module": "ThisLibrary is service metadata only; not redistributed or replaced",
+  "frame_auto_base": "Current FrameList3 R1.8 without file logging; uploaded R1.7 source kept unchanged as input",
+  "standalone_sources_replaced_in_repository": false
+}

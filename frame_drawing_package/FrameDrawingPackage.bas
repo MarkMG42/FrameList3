@@ -1,0 +1,409 @@
+Attribute VB_Name = "FrameDrawingPackage"
+Option Explicit
+
+Private Const VERSION As String = "FrameDrawingPackage P1"
+Private Const DRAWING_TEMPLATE As String = ""
+Private Const FRAME_TOKEN As String = "рама"
+Private Type FrameTask
+    AssemblyConfig As String
+    InstanceName As String
+    PartPath As String
+    PartConfig As String
+End Type
+Private tasks() As FrameTask
+Private taskCount As Long
+Private host As SldWorks.SldWorks
+Private assemblyModel As SldWorks.ModelDoc2
+Private drawingModel As SldWorks.ModelDoc2
+Private originalAssemblyConfig As String
+Private originalPartConfigs As Object
+Private partModels As Collection
+Private warnings As Collection
+Private audit As Collection
+Private stage As String
+Private completed As Long
+
+Public Sub main()
+    On Error GoTo Failed
+    Dim selectedConfigs As Collection, config As Variant, template As String
+    Dim firstSheet As SldWorks.Sheet, drawing As SldWorks.DrawingDoc, names As Variant
+    Dim i As Long, failure As String, restored As String, resultState As String
+    ResetState
+    Set host = Application.SldWorks
+    Set assemblyModel = host.ActiveDoc
+    FramePackageSupport.Require (assemblyModel Is Nothing) = False, "Откройте сборку рамы."
+    FramePackageSupport.Require assemblyModel.GetType = swDocASSEMBLY, "Запускайте макрос из сборки."
+    FramePackageSupport.Require Len(assemblyModel.GetPathName) > 0, "Сначала сохраните сборку."
+    originalAssemblyConfig = assemblyModel.ConfigurationManager.ActiveConfiguration.Name
+    CaptureLoadedPartConfigurations
+    Set selectedConfigs = ChooseConfigurations()
+    If selectedConfigs Is Nothing Then ClearReferences: Exit Sub
+    stage = "Поиск рам в конфигурациях"
+    For Each config In selectedConfigs
+        SetAssemblyConfiguration CStr(config)
+        DiscoverFrames CStr(config)
+    Next config
+    FramePackageSupport.Require taskCount > 0, "В выбранных конфигурациях нет видимых деталей рам. Проверьте имя детали и загрузку компонентов."
+    stage = "Шаблон нового чертежа"
+    template = DrawingTemplatePath()
+    If Len(template) = 0 Then
+        restored = RestoreSourceState()
+        If Len(restored) > 0 Then Err.Raise vbObjectError + 3501, VERSION, restored
+        ClearReferences
+        Exit Sub
+    End If
+    Set drawingModel = host.NewDocument(template, 0, 0#, 0#)
+    FramePackageSupport.Require (drawingModel Is Nothing) = False, "Не создан чертёж по шаблону: " & template
+    FramePackageSupport.Require drawingModel.GetType = swDocDRAWING, "Шаблон не создал документ чертежа."
+    Set drawing = drawingModel
+    names = drawing.GetSheetNames
+    FramePackageSupport.Require FramePackageSupport.HasItems(names), "В новом чертеже нет листа."
+    FramePackageSupport.Require UBound(names) - LBound(names) + 1 = 1, "Шаблон должен содержать ровно один исходный лист."
+    Set firstSheet = drawing.GetCurrentSheet
+    Dim sheetProps As Variant, sheetFormat As String, width As Double, height As Double
+    sheetProps = firstSheet.GetProperties: sheetFormat = firstSheet.GetTemplateName
+    FramePackageSupport.Require FramePackageSupport.HasItems(sheetProps), "Не прочитаны свойства листа шаблона."
+    FramePackageSupport.Require LBound(sheetProps) = 0 And UBound(sheetProps) >= 6, "Неполные свойства листа шаблона."
+    firstSheet.GetSize width, height
+    FramePackageSupport.Require width >= 0.419 And height >= 0.296, "Для комплекта нужен формат не меньше A3 в альбомной ориентации."
+    For i = 1 To taskCount
+        BuildTask i, firstSheet, sheetProps, sheetFormat, width, height
+        completed = completed + 1
+    Next i
+    stage = "Восстановление исходных конфигураций"
+    restored = RestoreSourceState()
+    FramePackageSupport.Require Len(restored) = 0, restored
+    FramePackageSupport.ActivateDocument host, drawingModel
+    drawingModel.EditRebuild3
+    stage = "Проверка размеров после восстановления конфигураций"
+    FramePackageSupport.ValidateAudit audit
+    names = drawing.GetSheetNames
+    FramePackageSupport.Require UBound(names) - LBound(names) + 1 = 3 * taskCount, "Число листов не совпадает с числом рам."
+    drawingModel.GraphicsRedraw2
+    If warnings.Count = 0 Then
+        MsgBox "выполнено успешно", vbInformation, VERSION
+    Else
+        MsgBox "Чертёж создан: рам=" & completed & "; листов=" & 3 * completed & "." & vbCrLf & _
+            "Есть пропуски или предупреждения:" & vbCrLf & WarningText(), vbExclamation, VERSION
+    End If
+    ClearReferences
+    Exit Sub
+Failed:
+    failure = CStr(Err.Number) & ": " & Err.Description
+    restored = RestoreSourceState()
+    ActivateResultForReview
+    Debug.Print VERSION & "; stage=" & stage & "; " & failure & "; restore=" & restored
+    If drawingModel Is Nothing Then
+        resultState = "Новый чертёж ещё не создан."
+    Else
+        resultState = "Созданный чертёж оставлен для проверки; автоматически не сохранялся."
+    End If
+    MsgBox "Комплект остановлен. Этап: " & stage & vbCrLf & failure & vbCrLf & _
+        "Завершено рам: " & completed & ". " & resultState & _
+        IIf(Len(restored) > 0, vbCrLf & restored, ""), vbExclamation, VERSION
+    ClearReferences
+End Sub
+
+Private Sub ActivateResultForReview()
+    On Error Resume Next
+    If drawingModel Is Nothing Then Exit Sub
+    FramePackageSupport.ActivateDocument host, drawingModel
+End Sub
+
+Private Sub ResetState()
+    ClearReferences
+    Erase tasks: taskCount = 0: completed = 0: stage = "Инициализация": originalAssemblyConfig = ""
+    Set originalPartConfigs = CreateObject("Scripting.Dictionary")
+    originalPartConfigs.CompareMode = vbTextCompare
+    Set partModels = New Collection: Set warnings = New Collection: Set audit = New Collection
+End Sub
+
+Private Sub ClearReferences()
+    Set host = Nothing: Set assemblyModel = Nothing: Set drawingModel = Nothing
+    Set originalPartConfigs = Nothing: Set partModels = Nothing: Set warnings = Nothing: Set audit = Nothing
+End Sub
+
+Private Sub CaptureLoadedPartConfigurations()
+    Dim documents As Variant, model As SldWorks.ModelDoc2, i As Long, key As String
+    documents = host.GetDocuments
+    If FramePackageSupport.HasItems(documents) = False Then Exit Sub
+    For i = LBound(documents) To UBound(documents)
+        Set model = documents(i)
+        If Not model Is Nothing Then
+            If model.GetType = swDocPART Then
+                key = model.GetPathName
+                If Len(key) > 0 Then
+                    If originalPartConfigs.Exists(key) = False Then
+                        originalPartConfigs.Add key, model.ConfigurationManager.ActiveConfiguration.Name
+                        partModels.Add model
+                    End If
+                End If
+            End If
+        End If
+    Next i
+End Sub
+
+Private Function ChooseConfigurations() As Collection
+    Dim values As Variant, result As Collection, text As String, answer As String, pieces As Variant, token As Variant
+    Dim selected As Object, i As Long, index As Long
+    values = assemblyModel.GetConfigurationNames
+    FramePackageSupport.Require FramePackageSupport.HasItems(values), "Не найден список конфигураций сборки."
+    Set result = New Collection
+    If UBound(values) = LBound(values) Then
+        result.Add CStr(values(LBound(values)))
+        Set ChooseConfigurations = result
+        Exit Function
+    End If
+    text = "Один чертёж, по три листа на каждую раму выбранных конфигураций." & vbCrLf & _
+        "0 — только текущая; * — все; либо номера через запятую:" & vbCrLf
+    For i = LBound(values) To UBound(values)
+        text = text & CStr(i - LBound(values) + 1) & ". " & CStr(values(i)) & vbCrLf
+    Next i
+    answer = Trim$(InputBox(text, VERSION, "0"))
+    If Len(answer) = 0 Then Exit Function
+    If answer = "0" Then
+        result.Add originalAssemblyConfig
+    ElseIf answer = "*" Then
+        For i = LBound(values) To UBound(values): result.Add CStr(values(i)): Next i
+    Else
+        Set selected = CreateObject("Scripting.Dictionary")
+        pieces = Split(Replace(answer, ";", ","), ",")
+        For Each token In pieces
+            token = Trim$(CStr(token))
+            FramePackageSupport.Require Len(token) > 0 And IsNumeric(token), "Некорректный номер конфигурации."
+            FramePackageSupport.Require CDbl(token) = Fix(CDbl(token)), "Номер конфигурации должен быть целым."
+            index = CLng(token) + LBound(values) - 1
+            FramePackageSupport.Require index >= LBound(values) And index <= UBound(values), "Номер конфигурации вне списка."
+            If selected.Exists(CStr(index)) = False Then
+                selected.Add CStr(index), True
+                result.Add CStr(values(index))
+            End If
+        Next token
+    End If
+    Set ChooseConfigurations = result
+End Function
+
+Private Sub SetAssemblyConfiguration(ByVal config As String)
+    FramePackageSupport.ActivateDocument host, assemblyModel
+    If StrComp(assemblyModel.ConfigurationManager.ActiveConfiguration.Name, config, vbTextCompare) <> 0 Then
+        FramePackageSupport.Require assemblyModel.ShowConfiguration2(config), "Не включена конфигурация сборки: " & config
+    End If
+    FramePackageSupport.Require StrComp(assemblyModel.ConfigurationManager.ActiveConfiguration.Name, config, vbTextCompare) = 0, _
+        "Не подтверждена конфигурация сборки: " & config
+    assemblyModel.EditRebuild3
+End Sub
+
+Private Sub DiscoverFrames(ByVal config As String)
+    Dim assembly As SldWorks.AssemblyDoc, values As Variant, component As SldWorks.Component2
+    Dim model As SldWorks.ModelDoc2, i As Long, before As Long, path As String
+    Set assembly = assemblyModel
+    values = assembly.GetComponents(False)
+    If FramePackageSupport.HasItems(values) = False Then
+        warnings.Add "В конфигурации " & config & " нет компонентов."
+        Exit Sub
+    End If
+    before = taskCount
+    For i = LBound(values) To UBound(values)
+        Set component = values(i)
+        path = component.GetPathName
+        If FrameName(path) And IsEffectivelyVisible(component) Then
+            Set model = component.GetModelDoc2
+            FramePackageSupport.Require (model Is Nothing) = False, "Полностью загрузите компонент рамы (Resolve): " & component.Name2
+            If model.GetType = swDocPART Then
+                taskCount = taskCount + 1
+                If taskCount = 1 Then ReDim tasks(1 To 16)
+                If taskCount > UBound(tasks) Then ReDim Preserve tasks(1 To UBound(tasks) + 16)
+                tasks(taskCount).AssemblyConfig = config
+                tasks(taskCount).InstanceName = component.Name2
+                tasks(taskCount).PartPath = path
+                tasks(taskCount).PartConfig = component.ReferencedConfiguration
+            End If
+        End If
+    Next i
+    If taskCount = before Then warnings.Add "В конфигурации " & config & " не найдено видимых рам."
+End Sub
+
+Private Function IsEffectivelyVisible(ByVal component As SldWorks.Component2) As Boolean
+    Dim node As SldWorks.Component2, count As Long
+    Set node = component
+    Do While Not node Is Nothing
+        If node.IsSuppressed Then Exit Function
+        If node.IsHidden(True) Then Exit Function
+        count = count + 1
+        FramePackageSupport.Require count < 1000, "Цикл в дереве компонентов."
+        Set node = node.GetParent
+    Loop
+    IsEffectivelyVisible = True
+End Function
+
+Private Function FrameName(ByVal path As String) As Boolean
+    Dim stem As String, at As Long
+    If LCase$(Right$(path, 7)) <> ".sldprt" Then Exit Function
+    stem = Replace(path, "/", "\")
+    at = InStrRev(stem, "\")
+    If at > 0 Then stem = Mid$(stem, at + 1)
+    FrameName = (InStr(1, stem, FRAME_TOKEN, vbTextCompare) > 0 Or InStr(1, stem, "frame", vbTextCompare) > 0)
+End Function
+
+Private Function ResolveTask(ByVal index As Long) As SldWorks.Component2
+    Dim assembly As SldWorks.AssemblyDoc, values As Variant, candidate As SldWorks.Component2, i As Long, count As Long
+    Set assembly = assemblyModel
+    values = assembly.GetComponents(False)
+    FramePackageSupport.Require FramePackageSupport.HasItems(values), "Нет компонентов текущей конфигурации."
+    For i = LBound(values) To UBound(values)
+        Set candidate = values(i)
+        If StrComp(candidate.Name2, tasks(index).InstanceName, vbTextCompare) = 0 Then
+            If StrComp(candidate.GetPathName, tasks(index).PartPath, vbTextCompare) = 0 Then
+                If StrComp(candidate.ReferencedConfiguration, tasks(index).PartConfig, vbTextCompare) = 0 Then
+                    count = count + 1: Set ResolveTask = candidate
+                End If
+            End If
+        End If
+    Next i
+    FramePackageSupport.Require count = 1, "Экземпляр рамы изменился: " & tasks(index).InstanceName
+End Function
+
+Private Sub ActivatePartConfig(ByVal model As SldWorks.ModelDoc2, ByVal config As String)
+    Dim key As String, active As String
+    key = model.GetPathName
+    active = model.ConfigurationManager.ActiveConfiguration.Name
+    If originalPartConfigs.Exists(key) = False Then
+        originalPartConfigs.Add key, active
+        partModels.Add model
+    End If
+    If StrComp(active, config, vbTextCompare) <> 0 Then
+        FramePackageSupport.Require model.ShowConfiguration2(config), "Не включена конфигурация детали: " & config
+    End If
+    FramePackageSupport.Require StrComp(model.ConfigurationManager.ActiveConfiguration.Name, config, vbTextCompare) = 0, _
+        "Не подтверждена конфигурация детали: " & config
+End Sub
+
+Private Sub BuildTask(ByVal index As Long, ByVal firstSheet As SldWorks.Sheet, ByVal props As Variant, _
+                      ByVal sheetFormat As String, ByVal width As Double, ByVal height As Double)
+    Dim frame As SldWorks.Component2, part As SldWorks.ModelDoc2, drawing As SldWorks.DrawingDoc
+    Dim iso As SldWorks.View, drilling As SldWorks.View, front As SldWorks.View, top As SldWorks.View
+    Dim sheetName As String, prefix As String, sheetBase As String, warning As String, count As Long, dimensions As Long
+    prefix = "F" & Format$(index, "000")
+    sheetBase = prefix & "_" & FrameHint(tasks(index).PartPath)
+    stage = prefix & ": конфигурация " & tasks(index).AssemblyConfig
+    SetAssemblyConfiguration tasks(index).AssemblyConfig
+    Set frame = ResolveTask(index)
+    Set part = frame.GetModelDoc2
+    FramePackageSupport.Require (part Is Nothing) = False, "Не загружена деталь рамы."
+    ActivatePartConfig part, tasks(index).PartConfig
+    Set drawing = drawingModel
+    sheetName = sheetBase & "_Общий"
+    stage = sheetName & ": сборка и длины"
+    FramePackageSupport.ActivateDocument host, drawingModel
+    If index = 1 Then
+        firstSheet.SetName sheetName
+        FramePackageSupport.ActivateSheet host, drawingModel, sheetName
+    Else
+        AddSheet sheetName, props, sheetFormat, width, height
+    End If
+    Set iso = FramePackageSupport.StandardView(drawingModel, assemblyModel.GetPathName, tasks(index).AssemblyConfig, "ISO", prefix & "_ISO")
+    iso.ProjectedDimensions = False
+    FramePackageSupport.Require iso.ProjectedDimensions = False, "Не включён истинный режим длин на изометрии."
+    FramePackageSupport.FitView drawingModel, iso, 0.045, 0.055, width - 0.045, height - 0.035
+    warning = FrameCutListDimensionsV3.RunForPackage(host, drawingModel, iso, frame, count)
+    If Len(warning) > 0 Then warnings.Add sheetName & ": " & warning
+    FramePackageSupport.AuditCurrentSheet drawingModel, audit
+    sheetName = sheetBase & "_Сверловка"
+    stage = sheetName & ": деталь рамы и сверловка"
+    AddSheet sheetName, props, sheetFormat, width, height
+    Set drilling = FramePackageSupport.StandardView(drawingModel, tasks(index).PartPath, tasks(index).PartConfig, "ISO", prefix & "_DRILL_SOURCE")
+    FramePackageSupport.FitView drawingModel, drilling, 0.025, height - 0.10, 0.11, height - 0.025
+    warning = InsertWeldWithHoles.RunForPackage(host, drawingModel, drilling, count)
+    If Len(warning) > 0 Then warnings.Add sheetName & ": " & warning
+    FramePackageSupport.ActivateSheet host, drawingModel, sheetName
+    FramePackageSupport.AuditCurrentSheet drawingModel, audit
+    sheetName = sheetBase & "_Монтаж"
+    stage = sheetName & ": виды спереди/сверху и монтажные размеры"
+    AddSheet sheetName, props, sheetFormat, width, height
+    Set front = FramePackageSupport.StandardView(drawingModel, assemblyModel.GetPathName, tasks(index).AssemblyConfig, "FRONT", prefix & "_FRONT")
+    Set top = FramePackageSupport.StandardView(drawingModel, assemblyModel.GetPathName, tasks(index).AssemblyConfig, "TOP", prefix & "_TOP")
+    FramePackageSupport.FitPair drawingModel, front, top, width, height
+    dimensions = FrameAutoSize.RunForPackage(host, drawingModel, front, frame, "FRONT")
+    dimensions = dimensions + FrameAutoSize.RunForPackage(host, drawingModel, top, frame, "TOP")
+    FramePackageSupport.AuditCurrentSheet drawingModel, audit
+    Debug.Print prefix & "; " & tasks(index).InstanceName & "; config=" & tasks(index).AssemblyConfig & "; mounting dimensions=" & dimensions
+End Sub
+
+Private Function FrameHint(ByVal path As String) As String
+    Dim text As String, at As Long
+    text = Replace(path, "/", "\")
+    at = InStrRev(text, "\")
+    If at > 0 Then text = Mid$(text, at + 1)
+    If LCase$(Right$(text, 7)) = ".sldprt" Then text = Left$(text, Len(text) - 7)
+    at = InStrRev(text, FRAME_TOKEN, -1, vbTextCompare)
+    If at = 0 Then at = InStrRev(text, "frame", -1, vbTextCompare)
+    If at > 0 Then text = Mid$(text, at)
+    FrameHint = Left$(text, 24)
+End Function
+
+Private Sub AddSheet(ByVal name As String, ByVal props As Variant, ByVal format As String, ByVal width As Double, ByVal height As Double)
+    Dim drawing As SldWorks.DrawingDoc, templateType As Long, formatPath As String
+    Set drawing = drawingModel
+    FramePackageSupport.ActivateDocument host, drawingModel
+    templateType = CLng(props(1)): formatPath = format
+    If Len(formatPath) = 0 Then templateType = swDwgTemplateNone
+    FramePackageSupport.Require drawing.NewSheet3(name, CLng(props(0)), templateType, CDbl(props(2)), CDbl(props(3)), _
+        CBool(props(4)), formatPath, width, height, "Default"), "Не создан лист: " & name
+    FramePackageSupport.ActivateSheet host, drawingModel, name
+End Sub
+
+Private Function DrawingTemplatePath() As String
+    Dim path As String
+    path = DRAWING_TEMPLATE
+    If Len(path) = 0 Then path = host.GetUserPreferenceStringValue(swDefaultTemplateDrawing)
+    If Len(path) = 0 Then path = Trim$(InputBox("Укажите полный путь к шаблону чертежа .drwdot:", VERSION))
+    If Len(path) = 0 Then Exit Function
+    FramePackageSupport.Require LCase$(Right$(path, 7)) = ".drwdot", "Нужен шаблон .drwdot."
+    Dim fs As Object
+    Set fs = CreateObject("Scripting.FileSystemObject")
+    FramePackageSupport.Require fs.FileExists(path), "Не найден шаблон: " & path
+    DrawingTemplatePath = path
+End Function
+
+Private Function RestoreSourceState() As String
+    On Error GoTo Failed
+    Dim model As SldWorks.ModelDoc2, key As String, message As String
+    If Not partModels Is Nothing Then
+        For Each model In partModels
+            key = model.GetPathName
+            message = message & RestoreOneConfiguration(model, CStr(originalPartConfigs(key)))
+        Next model
+    End If
+    If Not assemblyModel Is Nothing Then
+        If Len(originalAssemblyConfig) > 0 Then message = message & RestoreOneConfiguration(assemblyModel, originalAssemblyConfig)
+    End If
+    RestoreSourceState = message
+    Exit Function
+Failed:
+    RestoreSourceState = message & "Ошибка восстановления: " & Err.Description
+End Function
+
+Private Function RestoreOneConfiguration(ByVal model As SldWorks.ModelDoc2, ByVal config As String) As String
+    On Error GoTo Failed
+    If StrComp(model.ConfigurationManager.ActiveConfiguration.Name, config, vbTextCompare) <> 0 Then
+        If model.ShowConfiguration2(config) = False Then
+            RestoreOneConfiguration = "Не восстановлена конфигурация: " & model.GetTitle & vbCrLf
+            Exit Function
+        End If
+    End If
+    If StrComp(model.ConfigurationManager.ActiveConfiguration.Name, config, vbTextCompare) <> 0 Then _
+        RestoreOneConfiguration = "Не подтверждена конфигурация: " & model.GetTitle & vbCrLf
+    Exit Function
+Failed:
+    RestoreOneConfiguration = "Ошибка восстановления конфигурации: " & Err.Description & vbCrLf
+End Function
+
+Private Function WarningText() As String
+    Dim i As Long, text As String
+    For i = 1 To warnings.Count
+        Debug.Print CStr(warnings(i))
+        If i <= 8 Then text = text & CStr(warnings(i)) & vbCrLf
+    Next i
+    If warnings.Count > 8 Then text = text & "Полный список доступен в Immediate редактора VBA."
+    WarningText = text
+End Function

@@ -1,0 +1,489 @@
+{
+  "version": "FrameDrawingPackage P1",
+  "grammar": {
+    "reports": [
+      {
+        "file": "FrameAutoSize.txt",
+        "sha256": "b5f52dda5d8e0d19d2e0522755f287b3f3a094dcbc56fc0627fa0a65e3e72c63",
+        "errors": []
+      },
+      {
+        "file": "FrameCutListDimensionsV3.txt",
+        "sha256": "33bfb2f92a517508d6469c60748923954943a2b545a3102882558ae8c9d8bc1c",
+        "errors": []
+      },
+      {
+        "file": "FrameDrawingPackage.txt",
+        "sha256": "4250e96b7a1ff02d55c09d04effc24424617923bd32a6911701d5da3e9b029be",
+        "errors": []
+      },
+      {
+        "file": "FramePackageSupport.txt",
+        "sha256": "6298766c74a67c93697539b0927185c5f99e734503e94dcb03e966ffe4001594",
+        "errors": []
+      },
+      {
+        "file": "InsertWeldWithHoles.txt",
+        "sha256": "96316b5e4568ee6dc928ebd30d95ca81e126ec6ae50130f5784be20b87cd549b",
+        "errors": []
+      }
+    ],
+    "native_vba_compile": false,
+    "native_solidworks_run": false
+  },
+  "integration_checks": {
+    "public_entrypoints": [
+      "FrameDrawingPackage.main"
+    ],
+    "file_output_statements": [],
+    "embedded_and_supplied_cutlist_equal_ignoring_case": true,
+    "cross_module_contracts_checked": true,
+    "stage_order_checked": true,
+    "task_sheet_counts_checked": [
+      1,
+      2,
+      4,
+      12
+    ],
+    "api_members_checked": 60,
+    "constants_checked": 7,
+    "api": [
+      {
+        "interface": "ISldWorks",
+        "member": "GetDocuments",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "ISldWorks",
+        "member": "NewDocument",
+        "signature": "20041c0e080d0d",
+        "parameters": [
+          "TemplateName",
+          "PaperSize",
+          "Width",
+          "Height"
+        ]
+      },
+      {
+        "interface": "ISldWorks",
+        "member": "GetUserPreferenceStringValue",
+        "signature": "20010e08",
+        "parameters": [
+          "UserPreference"
+        ]
+      },
+      {
+        "interface": "ISldWorks",
+        "member": "ActivateDoc3",
+        "signature": "20041c0e02081008",
+        "parameters": [
+          "Name",
+          "UseUserPreferences",
+          "Option",
+          "Errors"
+        ]
+      },
+      {
+        "interface": "ISldWorks",
+        "member": "get_ActiveDoc",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "ISldWorks",
+        "member": "IsSame",
+        "signature": "2002081c1c",
+        "parameters": [
+          "Object1",
+          "Object2"
+        ]
+      },
+      {
+        "interface": "IModelDoc2",
+        "member": "GetConfigurationNames",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "IModelDoc2",
+        "member": "ShowConfiguration2",
+        "signature": "2001020e",
+        "parameters": [
+          "ConfigurationName"
+        ]
+      },
+      {
+        "interface": "IModelDoc2",
+        "member": "get_ConfigurationManager",
+        "signature": "2000128980",
+        "parameters": []
+      },
+      {
+        "interface": "IModelDoc2",
+        "member": "GetPathName",
+        "signature": "20000e",
+        "parameters": []
+      },
+      {
+        "interface": "IModelDoc2",
+        "member": "GetType",
+        "signature": "200008",
+        "parameters": []
+      },
+      {
+        "interface": "IModelDoc2",
+        "member": "GetTitle",
+        "signature": "20000e",
+        "parameters": []
+      },
+      {
+        "interface": "IModelDoc2",
+        "member": "EditRebuild3",
+        "signature": "200002",
+        "parameters": []
+      },
+      {
+        "interface": "IModelDoc2",
+        "member": "GraphicsRedraw2",
+        "signature": "200001",
+        "parameters": []
+      },
+      {
+        "interface": "IModelDoc2",
+        "member": "ClearSelection2",
+        "signature": "20010102",
+        "parameters": [
+          "All"
+        ]
+      },
+      {
+        "interface": "IAssemblyDoc",
+        "member": "GetComponents",
+        "signature": "20011c02",
+        "parameters": [
+          "ToplevelOnly"
+        ]
+      },
+      {
+        "interface": "IComponent2",
+        "member": "IsSuppressed",
+        "signature": "200002",
+        "parameters": []
+      },
+      {
+        "interface": "IComponent2",
+        "member": "IsHidden",
+        "signature": "20010202",
+        "parameters": [
+          "ConsiderSuppressed"
+        ]
+      },
+      {
+        "interface": "IComponent2",
+        "member": "GetParent",
+        "signature": "2000128674",
+        "parameters": []
+      },
+      {
+        "interface": "IComponent2",
+        "member": "GetModelDoc2",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "IComponent2",
+        "member": "GetPathName",
+        "signature": "20000e",
+        "parameters": []
+      },
+      {
+        "interface": "IComponent2",
+        "member": "get_Name2",
+        "signature": "20000e",
+        "parameters": []
+      },
+      {
+        "interface": "IComponent2",
+        "member": "get_ReferencedConfiguration",
+        "signature": "20000e",
+        "parameters": []
+      },
+      {
+        "interface": "IDrawingDoc",
+        "member": "GetSheetNames",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "IDrawingDoc",
+        "member": "GetCurrentSheet",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "IDrawingDoc",
+        "member": "ActivateSheet",
+        "signature": "2001020e",
+        "parameters": [
+          "Name"
+        ]
+      },
+      {
+        "interface": "IDrawingDoc",
+        "member": "EditSheet",
+        "signature": "200001",
+        "parameters": []
+      },
+      {
+        "interface": "IDrawingDoc",
+        "member": "CreateDrawViewFromModelView3",
+        "signature": "20051280f40e0e0d0d0d",
+        "parameters": [
+          "ModelName",
+          "ViewName",
+          "LocX",
+          "LocY",
+          "LocZ"
+        ]
+      },
+      {
+        "interface": "IDrawingDoc",
+        "member": "NewSheet3",
+        "signature": "200a020e08080d0d020e0d0d0e",
+        "parameters": [
+          "Name",
+          "PaperSize",
+          "TemplateIn",
+          "Scale1",
+          "Scale2",
+          "FirstAngle",
+          "TemplateName",
+          "Width",
+          "Height",
+          "PropertyViewName"
+        ]
+      },
+      {
+        "interface": "IDrawingDoc",
+        "member": "GetFirstView",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "ISheet",
+        "member": "GetProperties",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "ISheet",
+        "member": "GetTemplateName",
+        "signature": "20000e",
+        "parameters": []
+      },
+      {
+        "interface": "ISheet",
+        "member": "GetSize",
+        "signature": "200208100d100d",
+        "parameters": [
+          "Width",
+          "Height"
+        ]
+      },
+      {
+        "interface": "ISheet",
+        "member": "SetName",
+        "signature": "2001010e",
+        "parameters": [
+          "NameIn"
+        ]
+      },
+      {
+        "interface": "ISheet",
+        "member": "GetName",
+        "signature": "20000e",
+        "parameters": []
+      },
+      {
+        "interface": "IView",
+        "member": "get_RootDrawingComponent",
+        "signature": "2000128a04",
+        "parameters": []
+      },
+      {
+        "interface": "IView",
+        "member": "GetVisibleDrawingComponents",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "IView",
+        "member": "set_ReferencedConfiguration",
+        "signature": "2001010e",
+        "parameters": [
+          "Retval"
+        ]
+      },
+      {
+        "interface": "IView",
+        "member": "get_ReferencedConfiguration",
+        "signature": "20000e",
+        "parameters": []
+      },
+      {
+        "interface": "IView",
+        "member": "SetName2",
+        "signature": "2001020e",
+        "parameters": [
+          "Name"
+        ]
+      },
+      {
+        "interface": "IView",
+        "member": "set_UseSheetScale",
+        "signature": "20010108",
+        "parameters": [
+          "Retval"
+        ]
+      },
+      {
+        "interface": "IView",
+        "member": "set_ScaleDecimal",
+        "signature": "2001010d",
+        "parameters": [
+          "Retval"
+        ]
+      },
+      {
+        "interface": "IView",
+        "member": "get_ScaleDecimal",
+        "signature": "20000d",
+        "parameters": []
+      },
+      {
+        "interface": "IView",
+        "member": "get_Position",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "IView",
+        "member": "set_Position",
+        "signature": "2001011c",
+        "parameters": [
+          "Retval"
+        ]
+      },
+      {
+        "interface": "IView",
+        "member": "GetOutline",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "IView",
+        "member": "get_ReferencedDocument",
+        "signature": "2000128650",
+        "parameters": []
+      },
+      {
+        "interface": "IView",
+        "member": "set_ProjectedDimensions",
+        "signature": "20010102",
+        "parameters": [
+          "Retval"
+        ]
+      },
+      {
+        "interface": "IView",
+        "member": "get_ProjectedDimensions",
+        "signature": "200002",
+        "parameters": []
+      },
+      {
+        "interface": "IView",
+        "member": "GetFirstDisplayDimension5",
+        "signature": "20001282b8",
+        "parameters": []
+      },
+      {
+        "interface": "IView",
+        "member": "GetNextView",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "IDrawingComponent",
+        "member": "get_Name",
+        "signature": "20000e",
+        "parameters": []
+      },
+      {
+        "interface": "IDrawingComponent",
+        "member": "get_Component",
+        "signature": "2000128674",
+        "parameters": []
+      },
+      {
+        "interface": "IDisplayDimension",
+        "member": "GetDimension2",
+        "signature": "2001126808",
+        "parameters": [
+          "Index"
+        ]
+      },
+      {
+        "interface": "IDisplayDimension",
+        "member": "GetNext5",
+        "signature": "20001282b8",
+        "parameters": []
+      },
+      {
+        "interface": "IDisplayDimension",
+        "member": "GetAnnotation",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "IDimension",
+        "member": "get_SystemValue",
+        "signature": "20000d",
+        "parameters": []
+      },
+      {
+        "interface": "IAnnotation",
+        "member": "IsDangling",
+        "signature": "200002",
+        "parameters": []
+      },
+      {
+        "interface": "IConfigurationManager",
+        "member": "get_ActiveConfiguration",
+        "signature": "2000128288",
+        "parameters": []
+      },
+      {
+        "interface": "IConfiguration",
+        "member": "get_Name",
+        "signature": "20000e",
+        "parameters": []
+      }
+    ],
+    "native_vba_compile": false,
+    "native_solidworks_run": false,
+    "scope": "Source contracts, signatures and deterministic sheet names only; no VBA or COM execution"
+  },
+  "native_vba_compile": false,
+  "native_solidworks_run": false,
+  "source_sha256": {
+    "FrameCutListDimensionsV3.txt": "33bfb2f92a517508d6469c60748923954943a2b545a3102882558ae8c9d8bc1c",
+    "FrameDrawingPackage.txt": "4250e96b7a1ff02d55c09d04effc24424617923bd32a6911701d5da3e9b029be",
+    "FrameAutoSize.txt": "b5f52dda5d8e0d19d2e0522755f287b3f3a094dcbc56fc0627fa0a65e3e72c63",
+    "FramePackageSupport.txt": "6298766c74a67c93697539b0927185c5f99e734503e94dcb03e966ffe4001594",
+    "InsertWeldWithHoles.txt": "96316b5e4568ee6dc928ebd30d95ca81e126ec6ae50130f5784be20b87cd549b"
+  },
+  "internal_network_template_path_removed": true,
+  "corporate_cutlist_template": "Set TABLE_TEMPLATE locally in your SWP; standard installed template lookup retained",
+  "result": "Static source, interop and packaging checks passed; no native execution"
+}
