@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R35_CHANNEL_LENGTH_PACKAGE_P22"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R35_CHANNEL_LENGTH_PACKAGE_P23"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = True
@@ -82,6 +82,13 @@ Private Type NDHole
     X As Double
     Y As Double
     Radius As Double
+    ModelX As Double
+    ModelY As Double
+    ModelZ As Double
+    ModelNX As Double
+    ModelNY As Double
+    ModelNZ As Double
+    ModelRadius As Double
     Entity As SldWorks.Edge
 End Type
 Private Type NDBounds
@@ -3191,7 +3198,7 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
         WriteLog "Разрыв после: контур Y=" & CStr(CDbl(outline(1))) & "..." & CStr(CDbl(outline(3))) & _
              "; геометрия Y=" & CStr(postBounds.MinY) & "..." & CStr(postBounds.MaxY)
     End If
-    If postHoleCount <> holeCount Then Fail "После разрыва изменилось число видимых отверстий."
+    NdValidateBores holes, holeCount, postHoles, postHoleCount
     NdValidateAll created, expected, viewScale
     breaksCompleted = breaksCompleted + 1
     WriteLog "Разрыв подтверждён: до=" & CStr((bounds.MaxX - bounds.MinX) * 1000#) & _
@@ -3281,6 +3288,7 @@ Private Sub NdReadGeometry(ByVal view As SldWorks.View, ByVal viewScale As Doubl
                         holeCount = holeCount + 1
                         holes(holeCount).X = center(0): holes(holeCount).Y = center(1)
                         holes(holeCount).Radius = CDbl(circleData(6)) * viewScale
+                        NdCaptureBore holes(holeCount), circleData
                         Set holes(holeCount).Entity = edge
                     End If
                 End If
@@ -3290,6 +3298,71 @@ Private Sub NdReadGeometry(ByVal view As SldWorks.View, ByVal viewScale As Doubl
         End If
     Next i
     If lineCount = 0 Or initialized = False Then Fail "Нет прямолинейного контура для размеров."
+End Sub
+
+Private Sub NdCaptureBore(ByRef hole As NDHole, ByVal circleData As Variant)
+    Dim norm As Double
+    norm = Sqr(CDbl(circleData(3)) ^ 2 + CDbl(circleData(4)) ^ 2 + CDbl(circleData(5)) ^ 2)
+    If norm <= EPS Then Fail "Не определена ось отверстия для проверки разрыва."
+    hole.ModelX = circleData(0): hole.ModelY = circleData(1): hole.ModelZ = circleData(2)
+    hole.ModelNX = CDbl(circleData(3)) / norm
+    hole.ModelNY = CDbl(circleData(4)) / norm
+    hole.ModelNZ = CDbl(circleData(5)) / norm
+    hole.ModelRadius = circleData(6)
+End Sub
+
+Private Function NdSameBore(ByRef first As NDHole, ByRef second As NDHole) As Boolean
+    Dim dot As Double, dx As Double, dy As Double, dz As Double, axial As Double
+    If Abs(2# * first.ModelRadius - 2# * second.ModelRadius) > ND_DIAMETER_TOL Then Exit Function
+    dot = first.ModelNX * second.ModelNX + first.ModelNY * second.ModelNY + first.ModelNZ * second.ModelNZ
+    If Abs(dot) < 1# - 0.0000000001 Then Exit Function
+    dx = second.ModelX - first.ModelX: dy = second.ModelY - first.ModelY: dz = second.ModelZ - first.ModelZ
+    axial = dx * first.ModelNX + dy * first.ModelNY + dz * first.ModelNZ
+    dx = dx - axial * first.ModelNX: dy = dy - axial * first.ModelNY: dz = dz - axial * first.ModelNZ
+    NdSameBore = (dx * dx + dy * dy + dz * dz <= ND_MODEL_TOL * ND_MODEL_TOL)
+End Function
+
+Private Function NdUniqueBores(ByRef holes() As NDHole, ByVal count As Long) As Collection
+    Dim result As Collection, index As Variant, i As Long, duplicate As Boolean
+    Set result = New Collection
+    For i = 1 To count
+        duplicate = False
+        For Each index In result
+            If NdSameBore(holes(i), holes(CLng(index))) Then duplicate = True: Exit For
+        Next index
+        If duplicate = False Then result.Add i
+    Next i
+    Set NdUniqueBores = result
+End Function
+
+Private Sub NdValidateBores(ByRef before() As NDHole, ByVal beforeCount As Long, _
+                            ByRef after() As NDHole, ByVal afterCount As Long)
+    Dim original As Collection, actual As Collection, i As Variant, j As Variant
+    Dim matched() As Boolean, matches As Long, found As Long, k As Long
+    Set original = NdUniqueBores(before, beforeCount): Set actual = NdUniqueBores(after, afterCount)
+    WriteLog "Проверка отверстий после разрыва: вид=[" & currentView & "]; круговых рёбер=" & beforeCount & " -> " & afterCount & _
+        "; уникальных осей/диаметров=" & original.Count & " -> " & actual.Count
+    If original.Count = 0 Then Fail "Не прочитаны отверстия до разрыва."
+    If original.Count <> actual.Count Then Fail "После разрыва изменилось число уникальных отверстий: " & original.Count & " -> " & actual.Count
+    ReDim matched(1 To actual.Count)
+    For Each i In original
+        matches = 0: k = 0: found = 0
+        For Each j In actual
+            k = k + 1
+            If NdSameBore(before(CLng(i)), after(CLng(j))) Then matches = matches + 1: found = k
+        Next j
+        If matches <> 1 Then
+            WriteLog "Не сопоставлено отверстие: центр модели мм=" & before(CLng(i)).ModelX * 1000# & "," & _
+                before(CLng(i)).ModelY * 1000# & "," & before(CLng(i)).ModelZ * 1000# & "; диаметр мм=" & before(CLng(i)).ModelRadius * 2000#
+            Fail "После разрыва не подтверждено отверстие диаметром " & CStr(before(CLng(i)).ModelRadius * 2000#) & " мм."
+        End If
+        If matched(found) Then Fail "После разрыва два разных отверстия сопоставлены одному."
+        matched(found) = True
+    Next i
+    For k = 1 To actual.Count
+        If matched(k) = False Then Fail "После разрыва появилось несопоставленное отверстие."
+    Next k
+    WriteLog "Состав отверстий подтверждён по осям и диаметрам в координатах модели."
 End Sub
 
 Private Function NdInnerCylinder(ByVal edge As SldWorks.Edge) As Boolean

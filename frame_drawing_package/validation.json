@@ -1,10 +1,10 @@
 {
-  "version": "FrameDrawingPackage P2.2",
+  "version": "FrameDrawingPackage P2.3",
   "grammar": {
     "reports": [
       {
         "file": "FrameAutoSize.txt",
-        "sha256": "e807668d1605e87f36b2c73ac0d4bf4abad6c7a6977a6928acdd4f06b2a2ccd0",
+        "sha256": "3f1b508e05f1231ee49d7e80d439a0175107a4fb384fb3152d5b07a7dfee55f8",
         "errors": []
       },
       {
@@ -14,7 +14,7 @@
       },
       {
         "file": "FrameDrawingPackage.txt",
-        "sha256": "f42d5fefdc5745137081f5776e160d83999a3210ec7e73fb3e9f41af89e82a1f",
+        "sha256": "945d47eaa896aef71a1ad097c22f9b4ea37dcc2009a5735679c2c6a5137bc92f",
         "errors": []
       },
       {
@@ -24,7 +24,7 @@
       },
       {
         "file": "InsertWeldWithHoles.txt",
-        "sha256": "39d6dab5835467591c4d49cc11eac714ba4375e9df6305eaf075a9afa5cec628",
+        "sha256": "e733361b76d3a9a8c5d4b0bde781a18821b75c9c315b2bdfd79fc989329b5d26",
         "errors": []
       }
     ],
@@ -43,6 +43,10 @@
     "cutlist_matches_user_reference_outside_sheet_checked": true,
     "drill_arrangement_matches_user_reference_checked": true,
     "break_threshold_m": 0.9,
+    "top_slotted_tubes_filter_checked": true,
+    "existing_top_front_dimension_rules_preserved": true,
+    "break_bore_identity_check_present": true,
+    "break_planner_and_rollback_unchanged": true,
     "mounting_display_and_captions_checked": true,
     "display_state_binding_checked": true,
     "overview_without_dimension_calls_checked": true,
@@ -55,7 +59,7 @@
       4,
       12
     ],
-    "api_members_checked": 88,
+    "api_members_checked": 100,
     "constants_checked": 16,
     "api": [
       {
@@ -648,6 +652,78 @@
         "parameters": []
       },
       {
+        "interface": "IBody2",
+        "member": "GetFaces",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "IFace2",
+        "member": "GetSurface",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "IFace2",
+        "member": "get_Normal",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "IFace2",
+        "member": "GetLoops",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "ISurface",
+        "member": "IsPlane",
+        "signature": "200002",
+        "parameters": []
+      },
+      {
+        "interface": "ILoop2",
+        "member": "IsOuter",
+        "signature": "200002",
+        "parameters": []
+      },
+      {
+        "interface": "ILoop2",
+        "member": "GetEdges",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "ICurve",
+        "member": "IsCircle",
+        "signature": "200002",
+        "parameters": []
+      },
+      {
+        "interface": "ICurve",
+        "member": "get_CircleParams",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "IEdge",
+        "member": "GetCurveParams3",
+        "signature": "2000129044",
+        "parameters": []
+      },
+      {
+        "interface": "ICurveParamData",
+        "member": "get_UMinValue",
+        "signature": "20000d",
+        "parameters": []
+      },
+      {
+        "interface": "ICurveParamData",
+        "member": "get_UMaxValue",
+        "signature": "20000d",
+        "parameters": []
+      },
+      {
         "interface": "ITextFormat",
         "member": "get_CharHeight",
         "signature": "20000d",
@@ -694,12 +770,47 @@
   },
   "native_vba_compile": false,
   "native_solidworks_run": false,
+  "bore_arithmetic_checks": {
+    "cases_passed": [
+      "opposite_wall_and_normal",
+      "different_axis",
+      "changed_diameter",
+      "different_direction",
+      "coordinate_roundoff",
+      "missing_axis_shift",
+      "diameter_beyond_tolerance",
+      "oblique_axis",
+      "oblique_transverse_shift"
+    ],
+    "method": "Arithmetic extracted from VBA NdSameBore and translated to Python; no native VBA/COM execution",
+    "native_vba_compile": false,
+    "native_solidworks_run": false
+  },
+  "slot_arithmetic_checks": {
+    "cases_passed": [
+      "horizontal_capsule",
+      "reversed_cap_centres",
+      "split_straight_sides",
+      "rotated_capsule",
+      "oblique_model_plane",
+      "rectangle_without_semicircles",
+      "quarter_arcs_are_not_capsule_ends",
+      "circle_is_not_oblong",
+      "wrong_side_lengths",
+      "nonparallel_sides",
+      "sides_not_tangent_to_caps",
+      "side_outside_caps"
+    ],
+    "method": "Arithmetic extracted from VBA CapsuleGeometry and translated to Python; no native VBA/COM execution",
+    "native_vba_compile": false,
+    "native_solidworks_run": false
+  },
   "source_sha256": {
     "FrameCutListDimensionsV3.txt": "d0171e3ba398430023bc26ed0cb40524529c5cf3b6557f33a2a14b8f8baa5350",
-    "FrameDrawingPackage.txt": "f42d5fefdc5745137081f5776e160d83999a3210ec7e73fb3e9f41af89e82a1f",
-    "FrameAutoSize.txt": "e807668d1605e87f36b2c73ac0d4bf4abad6c7a6977a6928acdd4f06b2a2ccd0",
+    "FrameDrawingPackage.txt": "945d47eaa896aef71a1ad097c22f9b4ea37dcc2009a5735679c2c6a5137bc92f",
+    "FrameAutoSize.txt": "3f1b508e05f1231ee49d7e80d439a0175107a4fb384fb3152d5b07a7dfee55f8",
     "FramePackageSupport.txt": "434ec63ce632020ed5b8c699ae16af7a69f227b1ccf7fc7ff2d4e0102f3e3078",
-    "InsertWeldWithHoles.txt": "39d6dab5835467591c4d49cc11eac714ba4375e9df6305eaf075a9afa5cec628"
+    "InsertWeldWithHoles.txt": "e733361b76d3a9a8c5d4b0bde781a18821b75c9c315b2bdfd79fc989329b5d26"
   },
   "internal_network_template_path_removed": true,
   "corporate_cutlist_template": "Set TABLE_TEMPLATE locally in your SWP; standard installed template lookup retained",

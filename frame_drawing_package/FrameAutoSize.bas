@@ -1,9 +1,9 @@
 Attribute VB_Name = "FrameAutoSize"
 Option Explicit
 
-' FrameAutoSize R1.8. Source-only candidate; native SolidWorks test required.
+' FrameAutoSize package P2.3; native SolidWorks test required.
 ' Standard references: SolidWorks type library and constant type library.
-Private Const VERSION As String = "FrameAutoSize R1.8"
+Private Const VERSION As String = "FrameAutoSize Package P2.3"
 Private Const FRAME_NAME As String = "рама"
 Private Const TOP_OVERALL_WIDTH As Boolean = True
 Private Const MODEL_TOL As Double = 0.00005
@@ -29,6 +29,8 @@ Private Type MemberInfo
     AxisX As Double
     AxisY As Double
     AxisZ As Double
+    SlotChecked As Boolean
+    HasSlot As Boolean
 End Type
 Private Type EdgeInfo
     Source As SldWorks.Edge
@@ -811,7 +813,7 @@ Private Sub BuildPlan(ByVal mode As String)
                     value = members(i).MaxY - bottomY
                     datum = GlobalBoundary(False, bottomY, True)
                     target = Boundary(i, False, members(i).MaxY)
-                    If datum = 0 Or target = 0 Then Fail "Нет дальней кромки швеллера сверху: " & members(i).Label
+                    If datum = 0 Or target = 0 Then Fail "Нет верхней кромки профиля сверху: " & members(i).Label
                     AddJob datum, target, False, value / viewScale, members(i).Label
                 End If
             Else
@@ -857,6 +859,122 @@ Private Function TopNeedsRearY(ByVal index As Long, ByVal tolerance As Double) A
     For Each word In Array("швеллер", "швелер", "channel", "upn")
         If InStr(text, CStr(word)) > 0 Then TopNeedsRearY = True: Exit Function
     Next word
+    For Each word In Array("труб", "tube", "pipe", "rhs", "shs")
+        If InStr(text, CStr(word)) > 0 Then
+            If members(index).SlotChecked = False Then
+                members(index).HasSlot = HasPlanarSlot(index)
+                members(index).SlotChecked = True
+                WriteLog "TOP SLOT body=" & members(index).Label & "; capsule=" & members(index).HasSlot
+            End If
+            TopNeedsRearY = members(index).HasSlot
+            Exit Function
+        End If
+    Next word
+End Function
+
+Private Function HasPlanarSlot(ByVal index As Long) As Boolean
+    Dim faces As Variant, loops As Variant, face As SldWorks.Face2, surface As SldWorks.Surface
+    Dim contour As SldWorks.Loop2, normal As Variant, projected As Variant
+    Dim i As Long, j As Long, nx As Double, ny As Double, nz As Double, norm As Double
+    faces = members(index).Body.GetFaces
+    If HasItems(faces) = False Then Fail "Не прочитаны грани для поиска прорезей: " & members(index).Label
+    For i = LBound(faces) To UBound(faces)
+        Set face = faces(i): Set surface = face.GetSurface
+        If Not surface Is Nothing Then
+            If surface.IsPlane Then
+                normal = face.Normal
+                If HasItems(normal) Then
+                    projected = Project(Array(CDbl(normal(0)), CDbl(normal(1)), CDbl(normal(2))))
+                    nx = projected(0) - origin(0): ny = projected(1) - origin(1): nz = projected(2) - origin(2)
+                    norm = Sqr(nx * nx + ny * ny + nz * nz)
+                    If norm > 0# Then
+                        If Abs(nz) / norm >= AXIS_COS Then
+                            loops = face.GetLoops
+                            If HasItems(loops) Then
+                                For j = LBound(loops) To UBound(loops)
+                                    Set contour = loops(j)
+                                    If contour.IsOuter = False Then
+                                        If CapsuleLoop(contour) Then HasPlanarSlot = True: Exit Function
+                                    End If
+                                Next j
+                            End If
+                        End If
+                    End If
+                End If
+            End If
+        End If
+    Next i
+End Function
+
+Private Function CapsuleLoop(ByVal contour As SldWorks.Loop2) As Boolean
+    Dim values As Variant, edge As SldWorks.Edge, curve As SldWorks.Curve, parameters As SldWorks.CurveParamData
+    Dim circleData As Variant, a As Variant, b As Variant, segment As Variant, lines As Collection
+    Dim centres(0 To 1) As Variant, angles(0 To 1) As Double, groups As Long, cap As Long
+    Dim radius As Double, sweep As Double, length As Double, totalLength As Double, i As Long, k As Long
+    Dim dx As Double, dy As Double, dz As Double, distance As Double, axis As Variant
+    Dim dot As Double, along As Double, rx As Double, ry As Double, rz As Double
+    Const PI As Double = 3.14159265358979
+    Set lines = New Collection
+    values = contour.GetEdges
+    If HasItems(values) = False Then Exit Function
+    For i = LBound(values) To UBound(values)
+        Set edge = values(i): Set curve = edge.GetCurve
+        If curve Is Nothing Then Exit Function
+        If curve.IsLine Then
+            If Straight(edge, a, b, length) = False Then Exit Function
+            lines.Add Array(CDbl(a(0)), CDbl(a(1)), CDbl(a(2)), _
+                (b(0) - a(0)) / length, (b(1) - a(1)) / length, (b(2) - a(2)) / length)
+            totalLength = totalLength + length
+        ElseIf curve.IsCircle Then
+            circleData = curve.CircleParams
+            Set parameters = edge.GetCurveParams3
+            If parameters Is Nothing Then Exit Function
+            sweep = Abs(parameters.UMaxValue - parameters.UMinValue)
+            If sweep <= 0# Or sweep > PI + 0.00001 Then Exit Function
+            If groups = 0 Then radius = CDbl(circleData(6))
+            If radius <= VALUE_TOL Or Abs(CDbl(circleData(6)) - radius) > VALUE_TOL Then Exit Function
+            cap = -1
+            For k = 0 To groups - 1
+                a = centres(k)
+                If (circleData(0) - a(0)) ^ 2 + (circleData(1) - a(1)) ^ 2 + (circleData(2) - a(2)) ^ 2 <= MODEL_TOL ^ 2 Then cap = k
+            Next k
+            If cap < 0 Then
+                If groups >= 2 Then Exit Function
+                cap = groups: groups = groups + 1
+                centres(cap) = Array(CDbl(circleData(0)), CDbl(circleData(1)), CDbl(circleData(2)))
+            End If
+            angles(cap) = angles(cap) + sweep
+        Else
+            Exit Function
+        End If
+    Next i
+    If groups <> 2 Or lines.Count < 2 Then Exit Function
+    CapsuleLoop = CapsuleGeometry(centres, angles, lines, radius, totalLength)
+End Function
+
+Private Function CapsuleGeometry(ByRef centres() As Variant, ByRef angles() As Double, _
+                                 ByVal lines As Collection, ByVal radius As Double, ByVal totalLength As Double) As Boolean
+    Dim a As Variant, b As Variant, axis As Variant, segment As Variant
+    Dim dx As Double, dy As Double, dz As Double, distance As Double, dot As Double, along As Double
+    Dim rx As Double, ry As Double, rz As Double
+    Const PI As Double = 3.14159265358979
+    If Abs(angles(0) - PI) > 0.00001 Or Abs(angles(1) - PI) > 0.00001 Then Exit Function
+    a = centres(0): b = centres(1)
+    dx = b(0) - a(0): dy = b(1) - a(1): dz = b(2) - a(2)
+    distance = Sqr(dx * dx + dy * dy + dz * dz)
+    If distance <= MODEL_TOL Then Exit Function
+    If Abs(totalLength - 2# * distance) > MODEL_TOL Then Exit Function
+    axis = Array(dx / distance, dy / distance, dz / distance)
+    For Each segment In lines
+        dot = segment(3) * axis(0) + segment(4) * axis(1) + segment(5) * axis(2)
+        If Abs(dot) < 0.999999 Then Exit Function
+        dx = segment(0) - a(0): dy = segment(1) - a(1): dz = segment(2) - a(2)
+        along = dx * axis(0) + dy * axis(1) + dz * axis(2)
+        If along < -MODEL_TOL Or along > distance + MODEL_TOL Then Exit Function
+        rx = dx - along * axis(0): ry = dy - along * axis(1): rz = dz - along * axis(2)
+        If Abs(Sqr(rx * rx + ry * ry + rz * rz) - radius) > MODEL_TOL Then Exit Function
+    Next segment
+    CapsuleGeometry = True
 End Function
 
 Private Function TopEligible(ByVal index As Long) As Boolean
