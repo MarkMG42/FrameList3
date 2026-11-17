@@ -1,7 +1,7 @@
 Attribute VB_Name = "FrameDrawingPackage"
 Option Explicit
 
-Private Const VERSION As String = "FrameDrawingPackage P1"
+Private Const VERSION As String = "FrameDrawingPackage P1.1"
 Private Const DRAWING_TEMPLATE As String = ""
 Private Const FRAME_TOKEN As String = "рама"
 Private Type FrameTask
@@ -31,9 +31,9 @@ Public Sub main()
     ResetState
     Set host = Application.SldWorks
     Set assemblyModel = host.ActiveDoc
-    FramePackageSupport.Require (assemblyModel Is Nothing) = False, "Откройте сборку рамы."
-    FramePackageSupport.Require assemblyModel.GetType = swDocASSEMBLY, "Запускайте макрос из сборки."
-    FramePackageSupport.Require Len(assemblyModel.GetPathName) > 0, "Сначала сохраните сборку."
+    Call FramePackageSupport.Require((assemblyModel Is Nothing) = False, "Откройте сборку рамы.")
+    Call FramePackageSupport.Require(assemblyModel.GetType = swDocASSEMBLY, "Запускайте макрос из сборки.")
+    Call FramePackageSupport.Require(Len(assemblyModel.GetPathName) > 0, "Сначала сохраните сборку.")
     originalAssemblyConfig = assemblyModel.ConfigurationManager.ActiveConfiguration.Name
     CaptureLoadedPartConfigurations
     Set selectedConfigs = ChooseConfigurations()
@@ -43,7 +43,7 @@ Public Sub main()
         SetAssemblyConfiguration CStr(config)
         DiscoverFrames CStr(config)
     Next config
-    FramePackageSupport.Require taskCount > 0, "В выбранных конфигурациях нет видимых деталей рам. Проверьте имя детали и загрузку компонентов."
+    Call FramePackageSupport.Require(taskCount > 0, "В выбранных конфигурациях нет видимых деталей рам. Проверьте имя детали и загрузку компонентов.")
     stage = "Шаблон нового чертежа"
     template = DrawingTemplatePath()
     If Len(template) = 0 Then
@@ -53,32 +53,32 @@ Public Sub main()
         Exit Sub
     End If
     Set drawingModel = host.NewDocument(template, 0, 0#, 0#)
-    FramePackageSupport.Require (drawingModel Is Nothing) = False, "Не создан чертёж по шаблону: " & template
-    FramePackageSupport.Require drawingModel.GetType = swDocDRAWING, "Шаблон не создал документ чертежа."
+    Call FramePackageSupport.Require((drawingModel Is Nothing) = False, "Не создан чертёж по шаблону: " & template)
+    Call FramePackageSupport.Require(drawingModel.GetType = swDocDRAWING, "Шаблон не создал документ чертежа.")
     Set drawing = drawingModel
     names = drawing.GetSheetNames
-    FramePackageSupport.Require FramePackageSupport.HasItems(names), "В новом чертеже нет листа."
-    FramePackageSupport.Require UBound(names) - LBound(names) + 1 = 1, "Шаблон должен содержать ровно один исходный лист."
+    Call FramePackageSupport.Require(FramePackageSupport.HasItems(names), "В новом чертеже нет листа.")
+    Call FramePackageSupport.Require(UBound(names) - LBound(names) + 1 = 1, "Шаблон должен содержать ровно один исходный лист.")
     Set firstSheet = drawing.GetCurrentSheet
     Dim sheetProps As Variant, sheetFormat As String, width As Double, height As Double
     sheetProps = firstSheet.GetProperties: sheetFormat = firstSheet.GetTemplateName
-    FramePackageSupport.Require FramePackageSupport.HasItems(sheetProps), "Не прочитаны свойства листа шаблона."
-    FramePackageSupport.Require LBound(sheetProps) = 0 And UBound(sheetProps) >= 6, "Неполные свойства листа шаблона."
+    Call FramePackageSupport.Require(FramePackageSupport.HasItems(sheetProps), "Не прочитаны свойства листа шаблона.")
+    Call FramePackageSupport.Require(LBound(sheetProps) = 0 And UBound(sheetProps) >= 6, "Неполные свойства листа шаблона.")
     firstSheet.GetSize width, height
-    FramePackageSupport.Require width >= 0.419 And height >= 0.296, "Для комплекта нужен формат не меньше A3 в альбомной ориентации."
+    Call FramePackageSupport.Require(width >= 0.419 And height >= 0.296, "Для комплекта нужен формат не меньше A3 в альбомной ориентации.")
     For i = 1 To taskCount
         BuildTask i, firstSheet, sheetProps, sheetFormat, width, height
         completed = completed + 1
     Next i
     stage = "Восстановление исходных конфигураций"
     restored = RestoreSourceState()
-    FramePackageSupport.Require Len(restored) = 0, restored
+    Call FramePackageSupport.Require(Len(restored) = 0, restored)
     FramePackageSupport.ActivateDocument host, drawingModel
     drawingModel.EditRebuild3
     stage = "Проверка размеров после восстановления конфигураций"
     FramePackageSupport.ValidateAudit audit
     names = drawing.GetSheetNames
-    FramePackageSupport.Require UBound(names) - LBound(names) + 1 = 3 * taskCount, "Число листов не совпадает с числом рам."
+    Call FramePackageSupport.Require(UBound(names) - LBound(names) + 1 = 3 * taskCount, "Число листов не совпадает с числом рам.")
     drawingModel.GraphicsRedraw2
     If warnings.Count = 0 Then
         MsgBox "выполнено успешно", vbInformation, VERSION
@@ -147,7 +147,7 @@ Private Function ChooseConfigurations() As Collection
     Dim values As Variant, result As Collection, text As String, answer As String, pieces As Variant, token As Variant
     Dim selected As Object, i As Long, index As Long
     values = assemblyModel.GetConfigurationNames
-    FramePackageSupport.Require FramePackageSupport.HasItems(values), "Не найден список конфигураций сборки."
+    Call FramePackageSupport.Require(FramePackageSupport.HasItems(values), "Не найден список конфигураций сборки.")
     Set result = New Collection
     If UBound(values) = LBound(values) Then
         result.Add CStr(values(LBound(values)))
@@ -170,10 +170,10 @@ Private Function ChooseConfigurations() As Collection
         pieces = Split(Replace(answer, ";", ","), ",")
         For Each token In pieces
             token = Trim$(CStr(token))
-            FramePackageSupport.Require Len(token) > 0 And IsNumeric(token), "Некорректный номер конфигурации."
-            FramePackageSupport.Require CDbl(token) = Fix(CDbl(token)), "Номер конфигурации должен быть целым."
+            Call FramePackageSupport.Require(Len(token) > 0 And IsNumeric(token), "Некорректный номер конфигурации.")
+            Call FramePackageSupport.Require(CDbl(token) = Fix(CDbl(token)), "Номер конфигурации должен быть целым.")
             index = CLng(token) + LBound(values) - 1
-            FramePackageSupport.Require index >= LBound(values) And index <= UBound(values), "Номер конфигурации вне списка."
+            Call FramePackageSupport.Require(index >= LBound(values) And index <= UBound(values), "Номер конфигурации вне списка.")
             If selected.Exists(CStr(index)) = False Then
                 selected.Add CStr(index), True
                 result.Add CStr(values(index))
@@ -186,10 +186,10 @@ End Function
 Private Sub SetAssemblyConfiguration(ByVal config As String)
     FramePackageSupport.ActivateDocument host, assemblyModel
     If StrComp(assemblyModel.ConfigurationManager.ActiveConfiguration.Name, config, vbTextCompare) <> 0 Then
-        FramePackageSupport.Require assemblyModel.ShowConfiguration2(config), "Не включена конфигурация сборки: " & config
+        Call FramePackageSupport.Require(assemblyModel.ShowConfiguration2(config), "Не включена конфигурация сборки: " & config)
     End If
-    FramePackageSupport.Require StrComp(assemblyModel.ConfigurationManager.ActiveConfiguration.Name, config, vbTextCompare) = 0, _
-        "Не подтверждена конфигурация сборки: " & config
+    Call FramePackageSupport.Require(StrComp(assemblyModel.ConfigurationManager.ActiveConfiguration.Name, config, vbTextCompare) = 0, _
+        "Не подтверждена конфигурация сборки: " & config)
     assemblyModel.EditRebuild3
 End Sub
 
@@ -208,7 +208,7 @@ Private Sub DiscoverFrames(ByVal config As String)
         path = component.GetPathName
         If FrameName(path) And IsEffectivelyVisible(component) Then
             Set model = component.GetModelDoc2
-            FramePackageSupport.Require (model Is Nothing) = False, "Полностью загрузите компонент рамы (Resolve): " & component.Name2
+            Call FramePackageSupport.Require((model Is Nothing) = False, "Полностью загрузите компонент рамы (Resolve): " & component.Name2)
             If model.GetType = swDocPART Then
                 taskCount = taskCount + 1
                 If taskCount = 1 Then ReDim tasks(1 To 16)
@@ -230,7 +230,7 @@ Private Function IsEffectivelyVisible(ByVal component As SldWorks.Component2) As
         If node.IsSuppressed Then Exit Function
         If node.IsHidden(True) Then Exit Function
         count = count + 1
-        FramePackageSupport.Require count < 1000, "Цикл в дереве компонентов."
+        Call FramePackageSupport.Require(count < 1000, "Цикл в дереве компонентов.")
         Set node = node.GetParent
     Loop
     IsEffectivelyVisible = True
@@ -249,7 +249,7 @@ Private Function ResolveTask(ByVal index As Long) As SldWorks.Component2
     Dim assembly As SldWorks.AssemblyDoc, values As Variant, candidate As SldWorks.Component2, i As Long, count As Long
     Set assembly = assemblyModel
     values = assembly.GetComponents(False)
-    FramePackageSupport.Require FramePackageSupport.HasItems(values), "Нет компонентов текущей конфигурации."
+    Call FramePackageSupport.Require(FramePackageSupport.HasItems(values), "Нет компонентов текущей конфигурации.")
     For i = LBound(values) To UBound(values)
         Set candidate = values(i)
         If StrComp(candidate.Name2, tasks(index).InstanceName, vbTextCompare) = 0 Then
@@ -260,7 +260,7 @@ Private Function ResolveTask(ByVal index As Long) As SldWorks.Component2
             End If
         End If
     Next i
-    FramePackageSupport.Require count = 1, "Экземпляр рамы изменился: " & tasks(index).InstanceName
+    Call FramePackageSupport.Require(count = 1, "Экземпляр рамы изменился: " & tasks(index).InstanceName)
 End Function
 
 Private Sub ActivatePartConfig(ByVal model As SldWorks.ModelDoc2, ByVal config As String)
@@ -272,10 +272,10 @@ Private Sub ActivatePartConfig(ByVal model As SldWorks.ModelDoc2, ByVal config A
         partModels.Add model
     End If
     If StrComp(active, config, vbTextCompare) <> 0 Then
-        FramePackageSupport.Require model.ShowConfiguration2(config), "Не включена конфигурация детали: " & config
+        Call FramePackageSupport.Require(model.ShowConfiguration2(config), "Не включена конфигурация детали: " & config)
     End If
-    FramePackageSupport.Require StrComp(model.ConfigurationManager.ActiveConfiguration.Name, config, vbTextCompare) = 0, _
-        "Не подтверждена конфигурация детали: " & config
+    Call FramePackageSupport.Require(StrComp(model.ConfigurationManager.ActiveConfiguration.Name, config, vbTextCompare) = 0, _
+        "Не подтверждена конфигурация детали: " & config)
 End Sub
 
 Private Sub BuildTask(ByVal index As Long, ByVal firstSheet As SldWorks.Sheet, ByVal props As Variant, _
@@ -289,7 +289,7 @@ Private Sub BuildTask(ByVal index As Long, ByVal firstSheet As SldWorks.Sheet, B
     SetAssemblyConfiguration tasks(index).AssemblyConfig
     Set frame = ResolveTask(index)
     Set part = frame.GetModelDoc2
-    FramePackageSupport.Require (part Is Nothing) = False, "Не загружена деталь рамы."
+    Call FramePackageSupport.Require((part Is Nothing) = False, "Не загружена деталь рамы.")
     ActivatePartConfig part, tasks(index).PartConfig
     Set drawing = drawingModel
     sheetName = sheetBase & "_Общий"
@@ -303,7 +303,7 @@ Private Sub BuildTask(ByVal index As Long, ByVal firstSheet As SldWorks.Sheet, B
     End If
     Set iso = FramePackageSupport.StandardView(drawingModel, assemblyModel.GetPathName, tasks(index).AssemblyConfig, "ISO", prefix & "_ISO")
     iso.ProjectedDimensions = False
-    FramePackageSupport.Require iso.ProjectedDimensions = False, "Не включён истинный режим длин на изометрии."
+    Call FramePackageSupport.Require(iso.ProjectedDimensions = False, "Не включён истинный режим длин на изометрии.")
     FramePackageSupport.FitView drawingModel, iso, 0.045, 0.055, width - 0.045, height - 0.035
     warning = FrameCutListDimensionsV3.RunForPackage(host, drawingModel, iso, frame, count)
     If Len(warning) > 0 Then warnings.Add sheetName & ": " & warning
@@ -347,8 +347,8 @@ Private Sub AddSheet(ByVal name As String, ByVal props As Variant, ByVal format 
     FramePackageSupport.ActivateDocument host, drawingModel
     templateType = CLng(props(1)): formatPath = format
     If Len(formatPath) = 0 Then templateType = swDwgTemplateNone
-    FramePackageSupport.Require drawing.NewSheet3(name, CLng(props(0)), templateType, CDbl(props(2)), CDbl(props(3)), _
-        CBool(props(4)), formatPath, width, height, "Default"), "Не создан лист: " & name
+    Call FramePackageSupport.Require(drawing.NewSheet3(name, CLng(props(0)), templateType, CDbl(props(2)), CDbl(props(3)), _
+        CBool(props(4)), formatPath, width, height, "Default"), "Не создан лист: " & name)
     FramePackageSupport.ActivateSheet host, drawingModel, name
 End Sub
 
@@ -358,10 +358,10 @@ Private Function DrawingTemplatePath() As String
     If Len(path) = 0 Then path = host.GetUserPreferenceStringValue(swDefaultTemplateDrawing)
     If Len(path) = 0 Then path = Trim$(InputBox("Укажите полный путь к шаблону чертежа .drwdot:", VERSION))
     If Len(path) = 0 Then Exit Function
-    FramePackageSupport.Require LCase$(Right$(path, 7)) = ".drwdot", "Нужен шаблон .drwdot."
+    Call FramePackageSupport.Require(LCase$(Right$(path, 7)) = ".drwdot", "Нужен шаблон .drwdot.")
     Dim fs As Object
     Set fs = CreateObject("Scripting.FileSystemObject")
-    FramePackageSupport.Require fs.FileExists(path), "Не найден шаблон: " & path
+    Call FramePackageSupport.Require(fs.FileExists(path), "Не найден шаблон: " & path)
     DrawingTemplatePath = path
 End Function
 
