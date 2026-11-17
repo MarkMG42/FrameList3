@@ -1,9 +1,9 @@
 Attribute VB_Name = "FrameAutoSize"
 Option Explicit
 
-' FrameAutoSize R1.1. Source-only candidate; native SolidWorks test required.
+' FrameAutoSize R1.2. Source-only candidate; native SolidWorks test required.
 ' Standard references: SolidWorks type library and constant type library.
-Private Const VERSION As String = "FrameAutoSize R1.1"
+Private Const VERSION As String = "FrameAutoSize R1.2"
 Private Const FRAME_NAME As String = "рама"
 Private Const TOP_OVERALL_WIDTH As Boolean = True
 Private Const MODEL_TOL As Double = 0.00005
@@ -129,11 +129,13 @@ Private Sub RunMacro(ByVal requested As String, ByVal diagnostic As Boolean)
     mode = ResolveMode(requested, diagnostic)
     WriteLog "MODE=" & mode & "; diagnostic=" & CStr(diagnostic)
     ResolveFrame
+    phase = "projection"
     origin = Project(Array(0#, 0#, 0#))
     basisX = Project(Array(1#, 0#, 0#))
     basisY = Project(Array(0#, 1#, 0#))
     basisZ = Project(Array(0#, 0#, 1#))
     WriteLog "BASIS origin=" & PointText(origin) & "; X=" & PointText(basisX) & "; Y=" & PointText(basisY) & "; Z=" & PointText(basisZ)
+    ValidateBasis
     Dim filtered As Variant
     filtered = vw.Bodies
     If HasItems(filtered) Then Fail "Вид ограничен отдельными телами. Выберите полный вид сборки/рамы."
@@ -376,7 +378,8 @@ Private Sub ReadFolder(ByVal feature As SldWorks.Feature)
         For i = LBound(names) To UBound(names)
             raw = "": resolved = ""
             status = manager.Get6(CStr(names(i)), True, raw, resolved, wasResolved, linked)
-            WriteLog "PROPERTY folder=" & feature.Name & "; name=" & CStr(names(i)) & "; raw=" & raw & "; resolved=" & resolved
+            WriteLog "PROPERTY folder=" & feature.Name & "; name=" & CStr(names(i)) & "; raw=" & raw & "; resolved=" & resolved & _
+                "; status=" & CStr(status) & "; wasResolved=" & CStr(wasResolved) & "; linked=" & CStr(linked)
             text = text & " | " & CStr(names(i)) & "=" & resolved
             token = PropertyToken(raw)
             If token = "LENGTH" Or token = "SW-LENGTH" Then
@@ -543,22 +546,73 @@ Private Function AxisDirection(ByVal x As Double, ByVal y As Double, ByVal z As 
 End Function
 
 Private Function Support(ByVal index As Long, ByVal coordinate As Long, ByVal sign As Double) As Double
-    Dim dx As Double, dy As Double, dz As Double, x As Double, y As Double, z As Double, p As Variant
+    Dim dx As Double, dy As Double, dz As Double, norm As Double
+    Dim x As Double, y As Double, z As Double, p As Variant
     dx = sign * (basisX(coordinate) - origin(coordinate))
     dy = sign * (basisY(coordinate) - origin(coordinate))
     dz = sign * (basisZ(coordinate) - origin(coordinate))
-    If members(index).Body.GetExtremePoint(dx, dy, dz, x, y, z) = False Then Fail "Не найден экстремум " & members(index).Label
+    norm = Sqr(dx * dx + dy * dy + dz * dz)
+    If norm < 0.000000000001 Then Fail "Нулевое направление поиска экстремума. Проверьте преобразование вида."
+    dx = dx / norm: dy = dy / norm: dz = dz / norm
+    If members(index).Body.GetExtremePoint(dx, dy, dz, x, y, z) = False Then
+        WriteLog "EXTREME FAILED body=" & members(index).Label & "; coordinate=" & CStr(coordinate) & _
+            "; sign=" & CStr(sign) & "; direction=" & CStr(dx) & "; " & CStr(dy) & "; " & CStr(dz)
+        Fail "Не найден экстремум " & members(index).Label
+    End If
     p = Project(Array(x, y, z))
     Support = p(coordinate)
 End Function
 
 Private Function Project(ByVal source As Variant) As Variant
+    ' SolidWorks requires SAFEARRAY(Double), not VBA Array() of Variants.
+    Dim coordinates(0 To 2) As Double, result As Variant, i As Long
     Dim point As SldWorks.MathPoint
-    Set point = utility.CreatePoint(source)
-    If Not componentTransform Is Nothing Then Set point = point.MultiplyTransform(componentTransform)
+    If HasItems(source) = False Then Fail "Нет массива координат точки."
+    If LBound(source) <> 0 Or UBound(source) < 2 Then Fail "Неполные координаты точки."
+    For i = 0 To 2
+        coordinates(i) = CDbl(source(i))
+    Next i
+    Set point = utility.CreatePoint(coordinates)
+    If point Is Nothing Then Fail "SolidWorks не создал MathPoint."
+    result = point.ArrayData
+    If HasItems(result) = False Then Fail "MathPoint не вернул координаты."
+    If LBound(result) <> 0 Or UBound(result) < 2 Then Fail "Неполные координаты MathPoint."
+    For i = 0 To 2
+        If Abs(CDbl(result(i)) - coordinates(i)) > 0.000000001 Then _
+            Fail "CreatePoint изменил исходные координаты: неверный формат массива."
+    Next i
+    If Not componentTransform Is Nothing Then
+        Set point = point.MultiplyTransform(componentTransform)
+        If point Is Nothing Then Fail "Не применено преобразование экземпляра."
+    End If
     Set point = point.MultiplyTransform(viewTransform)
-    Project = point.ArrayData
+    If point Is Nothing Then Fail "Не применено преобразование вида."
+    result = point.ArrayData
+    If HasItems(result) = False Then Fail "Нет координат преобразованной точки."
+    If LBound(result) <> 0 Or UBound(result) < 2 Then Fail "Неполные координаты преобразованной точки."
+    ' Return an independent snapshot; no shared COM array references are retained.
+    Project = Array(CDbl(result(0)), CDbl(result(1)), CDbl(result(2)))
 End Function
+
+Private Sub ValidateBasis()
+    Dim vectors(0 To 2) As Variant, i As Long, j As Long, a As Variant, b As Variant
+    Dim norm As Double, dot As Double, tolerance As Double
+    vectors(0) = Array(basisX(0) - origin(0), basisX(1) - origin(1), basisX(2) - origin(2))
+    vectors(1) = Array(basisY(0) - origin(0), basisY(1) - origin(1), basisY(2) - origin(2))
+    vectors(2) = Array(basisZ(0) - origin(0), basisZ(1) - origin(1), basisZ(2) - origin(2))
+    tolerance = viewScale * 0.000001
+    For i = 0 To 2
+        a = vectors(i)
+        norm = Sqr(a(0) * a(0) + a(1) * a(1) + a(2) * a(2))
+        WriteLog "BASIS CHECK axis=" & CStr(i) & "; length=" & CStr(norm) & "; expected=" & CStr(viewScale)
+        If Abs(norm - viewScale) > tolerance Then Fail "Некорректная длина оси преобразования: " & CStr(i)
+        For j = 0 To i - 1
+            b = vectors(j)
+            dot = a(0) * b(0) + a(1) * b(1) + a(2) * b(2)
+            If Abs(dot) > viewScale * viewScale * 0.000001 Then Fail "Оси преобразования не перпендикулярны."
+        Next j
+    Next i
+End Sub
 
 Private Function Straight(ByVal edge As SldWorks.Edge, ByRef a As Variant, ByRef b As Variant, ByRef length As Double) As Boolean
     Dim curve As SldWorks.Curve, va As SldWorks.Vertex, vb As SldWorks.Vertex
@@ -946,7 +1000,7 @@ EmptyArray:
 End Function
 
 Private Function PointText(ByVal value As Variant) As String
-    PointText = CStr(value(0)) & "," & CStr(value(1)) & "," & CStr(value(2))
+    PointText = CStr(value(0)) & " | " & CStr(value(1)) & " | " & CStr(value(2))
 End Function
 
 Private Sub Fail(ByVal message As String)

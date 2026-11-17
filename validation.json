@@ -1,13 +1,28 @@
 {
-  "version": "FrameAutoSize R1.1",
-  "source_sha256": "6d2bfed5f1935c586dd61d8d6569b77f8e7b811574d2ed318e6b786a41ce2192",
+  "version": "FrameAutoSize R1.2",
+  "source_sha256": "08763101380925746bce64e1e38950124350116b825abf18df9c8e90e49a8421",
   "grammar": {
     "file": "FrameAutoSize.txt",
-    "sha256": "6d2bfed5f1935c586dd61d8d6569b77f8e7b811574d2ed318e6b786a41ce2192",
+    "sha256": "08763101380925746bce64e1e38950124350116b825abf18df9c8e90e49a8421",
     "grammar": "grammars-v4 VBA7.1 2766c2eed04f285dc763617c9459650892fcf5b9",
     "errors": [],
     "native_compile": false,
     "native_run": false
+  },
+  "numerical": {
+    "scope": "Numerical test of exact Support expressions extracted from source + unit literals",
+    "support_cases": 240,
+    "errors": [],
+    "native_vba_compile": false,
+    "native_solidworks_run": false
+  },
+  "basis_regression": {
+    "scope": "Actual VBA basis guard expressions + typed-array source contract",
+    "captured_degenerate_bases_rejected": 2,
+    "valid_scaled_rotated_mirrored_bases_accepted": 36,
+    "additional_invalid_bases_rejected": 2,
+    "native_vba_compile": false,
+    "native_solidworks_run": false
   },
   "api": {
     "scope": "Interop member and signature availability only; not VBA type checking or COM execution",
@@ -18,11 +33,8 @@
     "native_vba_compile": false,
     "native_solidworks_run": false
   },
-  "numerical": {
-    "status": "240 projection expression checks passed in R1; geometric code unchanged"
-  },
-  "change": "Log beside current SWP; prompt for accessible folder on write failure; TEMP no longer used",
+  "change": "CreatePoint takes explicit Double(0 To 2); point readback; independent snapshots; orthonormal basis guard; normalized extreme direction; LENGTH read statuses",
   "native_vba_compile": false,
   "native_solidworks_run": false,
-  "prior_native_feedback": "R1 user screenshots: geometry failed to get extreme point for body Скругление27; unresolved pending log"
+  "prior_native_feedback": "Two R1.1 diagnostics: basis Y and Z collapsed onto origin; GetExtremePoint failed at geometry stage. No dimensions created. R1.2 needs native rerun."
 }
