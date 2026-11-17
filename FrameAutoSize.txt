@@ -1,8 +1,8 @@
 Option Explicit
 
-' FrameAutoSize R1.2. Source-only candidate; native SolidWorks test required.
+' FrameAutoSize R1.3. Source-only candidate; native SolidWorks test required.
 ' Standard references: SolidWorks type library and constant type library.
-Private Const VERSION As String = "FrameAutoSize R1.2"
+Private Const VERSION As String = "FrameAutoSize R1.3"
 Private Const FRAME_NAME As String = "рама"
 Private Const TOP_OVERALL_WIDTH As Boolean = True
 Private Const MODEL_TOL As Double = 0.00005
@@ -415,7 +415,7 @@ Private Function ProfileEvidence(ByVal index As Long) As Boolean
     For Each word In keywords
         If InStr(text, CStr(word)) > 0 Then Exit Function
     Next word
-    keywords = Array("труб", "швеллер", "уголок", "уголк", "tube", "pipe", "channel", "angle", "rhs", "shs", "upn", "u channel")
+    keywords = Array("труб", "швеллер", "швелер", "уголок", "уголк", "tube", "pipe", "channel", "angle", "rhs", "shs", "upn", "u channel")
     For Each word In keywords
         If InStr(text, CStr(word)) > 0 Then ProfileEvidence = True: Exit Function
     Next word
@@ -640,15 +640,18 @@ End Sub
 Private Sub BuildPlan(ByVal mode As String)
     Dim i As Long, count As Long, baseBody As Long, datum As Long, target As Long
     Dim baseY As Double, tol As Double, value As Double, span As Double, bestSpan As Double, supportBottom As Double
+    Dim bands As Variant
     tol = MODEL_TOL * viewScale
     leftX = 1E+100: bottomY = 1E+100: rightX = -1E+100: topY = -1E+100
     For i = 1 To memberCount
         If members(i).Profile And members(i).AxisOK Then
+            If mode <> "TOP" Or TopEligible(i) Then
             count = count + 1
             If members(i).MinX < leftX Then leftX = members(i).MinX
             If members(i).MaxX > rightX Then rightX = members(i).MaxX
             If members(i).MinY < bottomY Then bottomY = members(i).MinY
             If members(i).MaxY > topY Then topY = members(i).MaxY
+            End If
         End If
     Next i
     If count = 0 Then Fail "Не распознаны профили рамы. Пришлите журнал Diagnose."
@@ -689,37 +692,84 @@ Private Sub BuildPlan(ByVal mode As String)
             End If
         Next i
     ElseIf mode = "TOP" Then
+        bands = TopBands(tol)
         WriteLog "DATUM TOP left/bottom sheet mm=" & CStr(leftX * 1000#) & "," & CStr(bottomY * 1000#)
+        WriteLog "TOP inner perimeter sheet mm=" & CStr(bands(0) * 1000#) & "; " & CStr(bands(1) * 1000#) & _
+            "; " & CStr(bands(2) * 1000#) & "; " & CStr(bands(3) * 1000#)
         For i = 1 To memberCount
-            If members(i).Profile And members(i).AxisOK Then
-                If members(i).Direction = "Y" Then
+            If TopEligible(i) Then
+                If TopNeedsX(i, bands, tol) Then
                     value = members(i).MinX - leftX
-                    If value > tol Then
-                        datum = GlobalBoundary(True, leftX)
-                        target = Boundary(i, True, members(i).MinX)
-                        If datum = 0 Or target = 0 Then Fail "Нет прямой кромки для размера X: " & members(i).Label
-                        AddJob datum, target, True, value / viewScale, members(i).Label
-                    End If
-                ElseIf members(i).Direction = "X" Then
-                    value = members(i).MinY - bottomY
-                    If value > tol Then
-                        datum = GlobalBoundary(False, bottomY)
-                        target = Boundary(i, False, members(i).MinY)
-                        If datum = 0 Or target = 0 Then Fail "Нет прямой кромки для размера Y: " & members(i).Label
-                        AddJob datum, target, False, value / viewScale, members(i).Label
-                    End If
+                    datum = GlobalBoundary(True, leftX, True)
+                    target = Boundary(i, True, members(i).MinX)
+                    If datum = 0 Or target = 0 Then Fail "Нет прямой кромки для размера X: " & members(i).Label
+                    AddJob datum, target, True, value / viewScale, members(i).Label
                 End If
+                If TopNeedsY(i, bands, tol) Then
+                    value = members(i).MinY - bottomY
+                    datum = GlobalBoundary(False, bottomY, True)
+                    target = Boundary(i, False, members(i).MinY)
+                    If datum = 0 Or target = 0 Then Fail "Нет прямой кромки для размера Y: " & members(i).Label
+                    AddJob datum, target, False, value / viewScale, members(i).Label
+                End If
+            Else
+                WriteLog "TOP excluded angle/other body=" & members(i).Label
             End If
         Next i
         If TOP_OVERALL_WIDTH Then
-            datum = GlobalBoundary(True, leftX)
-            target = GlobalBoundary(True, rightX)
+            datum = GlobalBoundary(True, leftX, True)
+            target = GlobalBoundary(True, rightX, True)
             If datum = 0 Or target = 0 Then Fail "Нет кромок для общей ширины рамы сверху."
             AddJob datum, target, True, (rightX - leftX) / viewScale, "Общая ширина рамы"
         End If
     End If
     SortAndPlace mode
 End Sub
+
+Private Function TopEligible(ByVal index As Long) As Boolean
+    Dim text As String, word As Variant
+    If members(index).Profile = False Or members(index).AxisOK = False Then Exit Function
+    text = LCase$(members(index).Metadata & " " & members(index).Label)
+    For Each word In Array("труб", "швеллер", "швелер", "tube", "pipe", "channel", "rhs", "shs", "upn")
+        If InStr(text, CStr(word)) > 0 Then TopEligible = True: Exit Function
+    Next word
+End Function
+
+Private Function TopBands(ByVal tolerance As Double) As Variant
+    Dim i As Long, leftInner As Double, rightInner As Double, bottomInner As Double, topInner As Double
+    leftInner = leftX: rightInner = rightX: bottomInner = bottomY: topInner = topY
+    For i = 1 To memberCount
+        If TopEligible(i) Then
+            If members(i).Direction = "Y" Then
+                If Abs(members(i).MinX - leftX) <= tolerance Then
+                    If members(i).MaxX > leftInner Then leftInner = members(i).MaxX
+                End If
+                If Abs(members(i).MaxX - rightX) <= tolerance Then
+                    If members(i).MinX < rightInner Then rightInner = members(i).MinX
+                End If
+            ElseIf members(i).Direction = "X" Then
+                If Abs(members(i).MinY - bottomY) <= tolerance Then
+                    If members(i).MaxY > bottomInner Then bottomInner = members(i).MaxY
+                End If
+                If Abs(members(i).MaxY - topY) <= tolerance Then
+                    If members(i).MinY < topInner Then topInner = members(i).MinY
+                End If
+            End If
+        End If
+    Next i
+    If leftInner >= rightInner Or bottomInner >= topInner Then Fail "Неоднозначный наружный контур рамы сверху."
+    TopBands = Array(leftInner, rightInner, bottomInner, topInner)
+End Function
+
+Private Function TopNeedsX(ByVal index As Long, ByVal bands As Variant, ByVal tolerance As Double) As Boolean
+    If members(index).Direction <> "Y" And members(index).Direction <> "Z" Then Exit Function
+    TopNeedsX = (members(index).MinX > bands(0) + tolerance And members(index).MaxX < bands(1) - tolerance)
+End Function
+
+Private Function TopNeedsY(ByVal index As Long, ByVal bands As Variant, ByVal tolerance As Double) As Boolean
+    If members(index).Direction <> "Z" Then Exit Function
+    TopNeedsY = (members(index).MinY > bands(2) + tolerance And members(index).MaxY < bands(3) - tolerance)
+End Function
 
 Private Function Boundary(ByVal member As Long, ByVal vertical As Boolean, ByVal coordinate As Double) As Long
     Dim i As Long, deviation As Double, offset As Double, length As Double, best As Double, tolerance As Double
@@ -742,14 +792,16 @@ Private Function Boundary(ByVal member As Long, ByVal vertical As Boolean, ByVal
     Next i
 End Function
 
-Private Function GlobalBoundary(ByVal vertical As Boolean, ByVal coordinate As Double) As Long
+Private Function GlobalBoundary(ByVal vertical As Boolean, ByVal coordinate As Double, Optional ByVal onlyTop As Boolean = False) As Long
     Dim i As Long, candidate As Long, best As Double, length As Double
     For i = 1 To memberCount
         If members(i).Profile And members(i).AxisOK Then
+            If onlyTop = False Or TopEligible(i) Then
             candidate = Boundary(i, vertical, coordinate)
             If candidate > 0 Then
                 If vertical Then length = Abs(edges(candidate).Y2 - edges(candidate).Y1) Else length = Abs(edges(candidate).X2 - edges(candidate).X1)
                 If length > best Then best = length: GlobalBoundary = candidate
+            End If
             End If
         End If
     Next i
@@ -774,11 +826,12 @@ Private Sub AddJob(ByVal datum As Long, ByVal target As Long, ByVal horizontal A
 End Sub
 
 Private Sub SortAndPlace(ByVal mode As String)
-    Dim i As Long, j As Long, temp As DimensionJob, nx As Long, ny As Long, nl As Long
+    Dim i As Long, j As Long, temp As DimensionJob, nx As Long, ny As Long, nl As Long, nt As Long
     Dim bodyIndex As Long, onLeft As Boolean, drawing As SldWorks.DrawingDoc, sheet As SldWorks.Sheet
     Dim sheetWidth As Double, sheetHeight As Double
     Set drawing = doc: Set sheet = drawing.GetCurrentSheet
     sheet.GetSize sheetWidth, sheetHeight
+    WriteLog "LAYOUT sheet mm=" & CStr(sheetWidth * 1000#) & "; " & CStr(sheetHeight * 1000#)
     For i = 2 To jobCount
         j = i
         Do While j > 1
@@ -791,11 +844,21 @@ Private Sub SortAndPlace(ByVal mode As String)
         If jobs(i).Horizontal Then
             jobs(i).AtX = leftX + jobs(i).Expected * viewScale / 2#
             jobs(i).AtY = bottomY - GAP - nx * STEP_GAP
-            nx = nx + 1
+            If jobs(i).AtY >= 0.005 Then
+                nx = nx + 1
+            Else
+                jobs(i).AtY = topY + GAP + nt * STEP_GAP
+                nt = nt + 1
+            End If
         Else
             bodyIndex = edges(jobs(i).Target).Member
             onLeft = False
             If mode = "FRONT" Then onLeft = ((members(bodyIndex).MinX + members(bodyIndex).MaxX) / 2# < (leftX + rightX) / 2#)
+            If onLeft Then
+                If leftX - GAP - nl * STEP_GAP < 0.005 Then onLeft = False
+            Else
+                If rightX + GAP + ny * STEP_GAP > sheetWidth - 0.005 Then onLeft = True
+            End If
             If onLeft Then
                 jobs(i).AtX = leftX - GAP - nl * STEP_GAP
                 nl = nl + 1
@@ -808,7 +871,8 @@ Private Sub SortAndPlace(ByVal mode As String)
         If jobs(i).AtX < 0.005 Or jobs(i).AtX > sheetWidth - 0.005 Or jobs(i).AtY < 0.005 Or jobs(i).AtY > sheetHeight - 0.005 Then _
             Fail "Для размерных линий недостаточно места на листе. Передвиньте вид дальше от края."
         WriteLog "PLAN " & CStr(i) & "; horizontal=" & CStr(jobs(i).Horizontal) & "; mm=" & CStr(jobs(i).Expected * 1000#) & _
-            "; target=" & jobs(i).Label & "; datumEdge=" & jobs(i).Datum & "; targetEdge=" & jobs(i).Target
+            "; target=" & jobs(i).Label & "; datumEdge=" & jobs(i).Datum & "; targetEdge=" & jobs(i).Target & _
+            "; anchor sheet mm=" & CStr(jobs(i).AtX * 1000#) & "; " & CStr(jobs(i).AtY * 1000#)
     Next i
 End Sub
 

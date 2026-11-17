@@ -1,40 +1,70 @@
 {
-  "version": "FrameAutoSize R1.2",
-  "source_sha256": "08763101380925746bce64e1e38950124350116b825abf18df9c8e90e49a8421",
+  "version": "FrameAutoSize R1.3",
+  "source_sha256": "ea629f6527da17b6d39c36f24003816bc43fd74b1c7ca547baedb798d94007da",
   "grammar": {
     "file": "FrameAutoSize.txt",
-    "sha256": "08763101380925746bce64e1e38950124350116b825abf18df9c8e90e49a8421",
+    "sha256": "ea629f6527da17b6d39c36f24003816bc43fd74b1c7ca547baedb798d94007da",
     "grammar": "grammars-v4 VBA7.1 2766c2eed04f285dc763617c9459650892fcf5b9",
     "errors": [],
     "native_compile": false,
     "native_run": false
   },
-  "numerical": {
-    "scope": "Numerical test of exact Support expressions extracted from source + unit literals",
-    "support_cases": 240,
-    "errors": [],
+  "top_selection_regression": {
+    "scope": "VBA selection expressions replayed on captured bounds; not native execution",
+    "X_mm": [
+      355.0,
+      600.0,
+      640.0,
+      1220.0
+    ],
+    "Y_mm": [
+      235.0,
+      350.0,
+      370.0
+    ],
+    "captured_bodies": 19,
+    "eligible_tubes_channels": 14,
+    "angle_bodies_excluded": 5,
+    "anchors_fit_420x297_sheet": true,
+    "translation_invariance": true,
     "native_vba_compile": false,
     "native_solidworks_run": false
   },
-  "basis_regression": {
-    "scope": "Actual VBA basis guard expressions + typed-array source contract",
-    "captured_degenerate_bases_rejected": 2,
-    "valid_scaled_rotated_mirrored_bases_accepted": 36,
-    "additional_invalid_bases_rejected": 2,
-    "native_vba_compile": false,
-    "native_solidworks_run": false
+  "projection_regression": "240 support-expression checks passed in R1.2; projection code unchanged in R1.3",
+  "api": "82 members and 11 constants previously audited; no API additions in R1.3",
+  "native_R12_front_diagnostic": {
+    "bodies": 19,
+    "plan_mm": [
+      156.5,
+      182,
+      480,
+      600,
+      901,
+      1265,
+      1410
+    ],
+    "edge_selections": 14,
+    "success": true,
+    "dimensions_created": false
   },
-  "api": {
-    "scope": "Interop member and signature availability only; not VBA type checking or COM execution",
-    "members_checked": 82,
-    "constants_checked": 11,
-    "missing": [],
-    "assembly_sha256": "d6882de288a8a8c328e264f19b8466ad83793daa58a493665ebf88db6943eb51",
-    "native_vba_compile": false,
-    "native_solidworks_run": false
+  "native_R12_top_diagnostic": {
+    "geometry_success": true,
+    "failure": "Insufficient layout space; angles included in bounds and post ends omitted"
   },
-  "change": "CreatePoint takes explicit Double(0 To 2); point readback; independent snapshots; orthonormal basis guard; normalized extreme direction; LENGTH read statuses",
-  "native_vba_compile": false,
-  "native_solidworks_run": false,
-  "prior_native_feedback": "Two R1.1 diagnostics: basis Y and Z collapsed onto origin; GetExtremePoint failed at geometry stage. No dimensions created. R1.2 needs native rerun."
+  "change": "Top bounds/targets limited to tubes and channels; post ends included; outer attachments omitted; opposite-side layout fallback",
+  "user_confirmed_expected_top_mm": {
+    "X": [
+      355,
+      600,
+      640,
+      1220
+    ],
+    "Y": [
+      235,
+      350,
+      370
+    ]
+  },
+  "native_vba_compile_R13": false,
+  "native_solidworks_run_R13": false
 }
