@@ -1,7 +1,7 @@
 Attribute VB_Name = "FrameDrawingPackage"
 Option Explicit
 
-Private Const VERSION As String = "FrameDrawingPackage P2.3"
+Private Const VERSION As String = "FrameDrawingPackage P2.4"
 Private Const DRAWING_TEMPLATE As String = ""
 Private Const FRAME_TOKEN As String = "рама"
 Private Type FrameTask
@@ -35,6 +35,13 @@ Public Sub main()
     ResetState
     Set host = Application.SldWorks
     Set assemblyModel = host.ActiveDoc
+    If Not assemblyModel Is Nothing Then
+        If assemblyModel.GetType = swDocDRAWING Then
+            RepairDrawingView host, assemblyModel
+            ClearReferences
+            Exit Sub
+        End If
+    End If
     Call FramePackageSupport.Require((assemblyModel Is Nothing) = False, "Откройте сборку рамы.")
     Call FramePackageSupport.Require(assemblyModel.GetType = swDocASSEMBLY, "Запускайте макрос из сборки.")
     Call FramePackageSupport.Require(Len(assemblyModel.GetPathName) > 0, "Сначала сохраните сборку.")
@@ -112,6 +119,24 @@ Failed:
         "Завершено рам: " & completed & ". " & resultState & _
         IIf(Len(restored) > 0, vbCrLf & restored, ""), vbExclamation, VERSION
     ClearReferences
+End Sub
+
+Private Sub RepairDrawingView(ByVal host As SldWorks.SldWorks, ByVal model As SldWorks.ModelDoc2)
+    On Error GoTo Failed
+    Dim selection As SldWorks.SelectionMgr, view As SldWorks.View, report As String
+    Set selection = model.SelectionManager
+    Call FramePackageSupport.Require(selection.GetSelectedObjectCount2(-1) = 1, "Выберите один сверловочный вид DRILL_... на чертеже.")
+    Call FramePackageSupport.Require(selection.GetSelectedObjectType3(1, -1) = swSelDRAWINGVIEWS, "Нужно выбрать сам сверловочный вид, щёлкнув его рамку.")
+    Set view = selection.GetSelectedObject6(1, -1)
+    report = InsertWeldWithHoles.RepairSelectedBreakForPackage(host, model, view)
+    If Len(report) = 0 Then
+        MsgBox "выполнено успешно", vbInformation, VERSION
+    Else
+        MsgBox report, vbExclamation, VERSION
+    End If
+    Exit Sub
+Failed:
+    MsgBox Err.Description, vbExclamation, VERSION
 End Sub
 
 Private Sub ActivateResultForReview()
