@@ -1,26 +1,47 @@
 {
-  "version": "FrameAutoSize R1.7",
-  "source_sha256": "becdc9cbf745e8a64512b40d8302e83a93d1f358f69145fe9b2784f282ac225f",
+  "version": "FrameAutoSize R1.8",
+  "source_sha256": "95adb4fabb0d43cdf62508e9e7afeea3c87e911240f84ddf6fd5cf76ce9683e0",
   "grammar": {
     "file": "FrameAutoSize.txt",
-    "sha256": "becdc9cbf745e8a64512b40d8302e83a93d1f358f69145fe9b2784f282ac225f",
+    "sha256": "95adb4fabb0d43cdf62508e9e7afeea3c87e911240f84ddf6fd5cf76ce9683e0",
     "grammar": "grammars-v4 VBA7.1 2766c2eed04f285dc763617c9459650892fcf5b9",
     "errors": [],
     "native_compile": false,
     "native_run": false
   },
-  "entrypoints": {
+  "file_output_audit": {
+    "no_VBA_file_output_statements": true,
+    "file_logger_and_folder_prompt_removed": true,
     "public_entrypoints": [
-      "FrameAutoSize.main"
+      "main"
     ],
-    "changes_limited_to_visibility_and_version": true,
-    "baseline": "R1.6 user-confirmed",
-    "native_vba_compile_R17": false,
-    "native_solidworks_run_R17": false
+    "unchanged_geometry_and_validation_routines": [
+      "ReadBodies",
+      "ReadGeometry",
+      "BuildPlan",
+      "FindFrontStation",
+      "TopNeedsRearY",
+      "TopEligible",
+      "TopBands",
+      "TopNeedsX",
+      "TopNeedsY",
+      "Boundary",
+      "GlobalBoundary",
+      "AddJob",
+      "SortAndPlace",
+      "CreateDimensions",
+      "ValidateDimension",
+      "ValidateAll",
+      "Project",
+      "Support",
+      "ValidateBasis"
+    ],
+    "diagnostics": "Debug.Print only; no files",
+    "native_vba_compile_R18": false,
+    "native_solidworks_run_R18": false
   },
-  "change": "Only main public; Front/Top/Diagnose wrappers Private; same geometry and placement as user-confirmed R1.6",
-  "user_swp_action": "Remove empty template module FrameList31 in VBA editor; not part of distributed BAS",
-  "prior_native_evidence": "R1.6 explicitly confirmed working by user",
-  "native_vba_compile_R17": false,
-  "native_solidworks_run_R17": false
+  "change": "Remove all file logging, folder prompts and file-path reports; Debug.Print diagnostics only; one public main retained",
+  "prior_native_evidence": "Geometry derives from user-confirmed R1.6 and unchanged R1.7",
+  "native_vba_compile_R18": false,
+  "native_solidworks_run_R18": false
 }

@@ -1,8 +1,8 @@
 Option Explicit
 
-' FrameAutoSize R1.7. Source-only candidate; native SolidWorks test required.
+' FrameAutoSize R1.8. Source-only candidate; native SolidWorks test required.
 ' Standard references: SolidWorks type library and constant type library.
-Private Const VERSION As String = "FrameAutoSize R1.7"
+Private Const VERSION As String = "FrameAutoSize R1.8"
 Private Const FRAME_NAME As String = "рама"
 Private Const TOP_OVERALL_WIDTH As Boolean = True
 Private Const MODEL_TOL As Double = 0.00005
@@ -59,7 +59,7 @@ Private members() As MemberInfo, memberCount As Long
 Private edges() As EdgeInfo, edgeCount As Long
 Private jobs() As DimensionJob, jobCount As Long
 Private visited As Collection, created As Collection, expected As Collection
-Private logNumber As Integer, logPath As String, phase As String
+Private phase As String
 Private viewScale As Double
 Private origin As Variant, basisX As Variant, basisY As Variant, basisZ As Variant
 Private leftX As Double, rightX As Double, bottomY As Double, topY As Double
@@ -100,14 +100,12 @@ Private Sub RunMacro(ByVal requested As String, ByVal diagnostic As Boolean)
     phase = "context"
     Set sw = Application.SldWorks
     Set doc = sw.ActiveDoc
-    OpenLog
     WriteLog "START " & VERSION & "; " & CStr(Now) & "; requested=" & requested
     LogContext doc
     If requested = "CONTEXT" Then
         Dim contextReport As String
         contextReport = VERSION & vbCrLf & "Диагностика экземпляра SolidWorks завершена." & vbCrLf & _
-            "Документы не изменялись." & vbCrLf & "Журнал: " & logPath
-        CloseLog
+            "Документы не изменялись." & vbCrLf & "Подробности: окно Immediate редактора VBA (Ctrl+G)."
         ReleaseObjects
         MsgBox contextReport, vbInformation, VERSION
         Exit Sub
@@ -185,11 +183,10 @@ Private Sub RunMacro(ByVal requested As String, ByVal diagnostic As Boolean)
     If diagnostic Then
         report = VERSION & vbCrLf & "Рама: " & partModel.GetTitle & vbCrLf & _
             "Тел: " & memberCount & "; запланировано размеров: " & jobCount & vbCrLf & _
-            "Диагностика завершена. Чертёж не изменён." & vbCrLf & "Журнал: " & logPath
+            "Диагностика завершена. Чертёж не изменён." & vbCrLf & "Подробности: окно Immediate редактора VBA (Ctrl+G)."
     Else
         report = "выполнено успешно"
     End If
-    CloseLog
     ReleaseObjects
     MsgBox report, vbInformation, VERSION
     Exit Sub
@@ -201,10 +198,9 @@ Failed:
     restoreOK = RestorePreference()
     If RestoreMode() = False Then restoreOK = False
     WriteLog "ROLLBACK=" & CStr(rollbackOK) & "; settings restored=" & CStr(restoreOK)
-    report = VERSION & vbCrLf & "Этап: " & phase & vbCrLf & message & vbCrLf & "Журнал: " & logPath
+    report = VERSION & vbCrLf & "Этап: " & phase & vbCrLf & message & vbCrLf & "Подробности: окно Immediate редактора VBA (Ctrl+G)."
     If rollbackOK = False Then report = report & vbCrLf & "Часть новых размеров не удалена; проверьте чертёж."
     If restoreOK = False Then report = report & vbCrLf & "Проверьте настройки размеров вида и ввода значения."
-    CloseLog
     ReleaseObjects
     MsgBox report, vbExclamation, VERSION
 End Sub
@@ -213,9 +209,9 @@ Private Sub LogContext(ByVal captured As SldWorks.ModelDoc2)
     On Error GoTo Failed
     Dim current As SldWorks.ModelDoc2, documents As Variant, candidate As SldWorks.ModelDoc2, i As Long
     WriteLog "CONTEXT pid=" & CStr(sw.GetProcessID) & "; documentCount=" & CStr(sw.GetDocumentCount)
-    LogContextDocument "active-before-log", captured
+    LogContextDocument "active-at-start", captured
     Set current = sw.ActiveDoc
-    LogContextDocument "active-after-log", current
+    LogContextDocument "active-now", current
     documents = sw.GetDocuments
     If HasItems(documents) = False Then
         WriteLog "CONTEXT documents=[]"
@@ -256,7 +252,6 @@ Failed:
 End Sub
 
 Private Sub ResetState()
-    CloseLog
     ReleaseObjects
     Erase members: Erase edges: Erase jobs
     memberCount = 0: edgeCount = 0: jobCount = 0
@@ -264,7 +259,7 @@ Private Sub ResetState()
     Set created = New Collection
     Set expected = New Collection
     preferenceKnown = False: modeKnown = False
-    logPath = "": phase = "init"
+    phase = "init"
 End Sub
 
 Private Sub ReleaseObjects()
@@ -1147,50 +1142,9 @@ Failed:
     RestoreMode = False
 End Function
 
-Private Sub OpenLog()
-    Dim host As SldWorks.SldWorks, macroPath As String, folder As String, separator As Long
-    If sw Is Nothing Then
-        Set host = Application.SldWorks
-    Else
-        Set host = sw
-    End If
-    macroPath = host.GetCurrentMacroPathName
-    separator = InStrRev(macroPath, "\")
-    If separator > 0 Then
-        folder = Left$(macroPath, separator - 1)
-        If TryOpenLogFolder(folder) Then Exit Sub
-    End If
-    folder = InputBox("Не удалось сохранить журнал рядом с макросом." & vbCrLf & _
-        "Укажите полный путь к существующей доступной папке для журнала:", VERSION)
-    folder = Trim$(folder)
-    If Len(folder) = 0 Then Fail "Папка журнала не выбрана. Сохраните SWP в доступную папку и повторите запуск."
-    If TryOpenLogFolder(folder) = False Then Fail "Не удалось записать журнал в папку: " & folder
-End Sub
-
-Private Function TryOpenLogFolder(ByVal folder As String) As Boolean
-    On Error GoTo Failed
-    Dim candidate As String, number As Integer
-    If Right$(folder, 1) <> "\" Then folder = folder & "\"
-    candidate = folder & "FrameAutoSize_" & Format$(Now, "yyyymmdd_hhnnss") & "_" & CStr(CLng(Timer * 10#)) & ".txt"
-    number = FreeFile
-    Open candidate For Output As #number
-    logPath = candidate
-    logNumber = number
-    TryOpenLogFolder = True
-    Exit Function
-Failed:
-    logNumber = 0
-End Function
-
 Private Sub WriteLog(ByVal message As String)
     On Error Resume Next
-    If logNumber <> 0 Then Print #logNumber, message
-End Sub
-
-Private Sub CloseLog()
-    On Error Resume Next
-    If logNumber <> 0 Then Close #logNumber
-    logNumber = 0
+    Debug.Print message
 End Sub
 
 Private Function HasItems(ByVal values As Variant) As Boolean
