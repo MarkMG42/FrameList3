@@ -1,8 +1,8 @@
 Option Explicit
 
-' FrameAutoSize R1.4. Source-only candidate; native SolidWorks test required.
+' FrameAutoSize R1.5. Source-only candidate; native SolidWorks test required.
 ' Standard references: SolidWorks type library and constant type library.
-Private Const VERSION As String = "FrameAutoSize R1.4"
+Private Const VERSION As String = "FrameAutoSize R1.5"
 Private Const FRAME_NAME As String = "рама"
 Private Const TOP_OVERALL_WIDTH As Boolean = True
 Private Const MODEL_TOL As Double = 0.00005
@@ -45,6 +45,7 @@ Private Type DimensionJob
     AtX As Double
     AtY As Double
     Label As String
+    Station As Long
 End Type
 Private sw As SldWorks.SldWorks
 Private doc As SldWorks.ModelDoc2
@@ -700,7 +701,7 @@ End Sub
 Private Sub BuildPlan(ByVal mode As String)
     Dim i As Long, count As Long, baseBody As Long, datum As Long, target As Long
     Dim baseY As Double, tol As Double, value As Double, span As Double, bestSpan As Double, supportBottom As Double
-    Dim bands As Variant
+    Dim bands As Variant, station As Long
     tol = MODEL_TOL * viewScale
     leftX = 1E+100: bottomY = 1E+100: rightX = -1E+100: topY = -1E+100
     For i = 1 To memberCount
@@ -746,7 +747,10 @@ Private Sub BuildPlan(ByVal mode As String)
                     If value > tol Then
                         target = Boundary(i, False, members(i).MaxY)
                         If target = 0 Then Fail "Нет верхней кромки целевого профиля: " & members(i).Label
-                        AddJob datum, target, False, value / viewScale, members(i).Label
+                        station = FindFrontStation(i, tol)
+                        If station = 0 Then station = i
+                        WriteLog "FRONT STATION target=" & members(i).Label & "; station=" & members(station).Label
+                        AddJob datum, target, False, value / viewScale, members(i).Label, station
                     End If
                 End If
             End If
@@ -772,6 +776,13 @@ Private Sub BuildPlan(ByVal mode As String)
                     If datum = 0 Or target = 0 Then Fail "Нет прямой кромки для размера Y: " & members(i).Label
                     AddJob datum, target, False, value / viewScale, members(i).Label
                 End If
+                If TopNeedsRearY(i, tol) Then
+                    value = members(i).MaxY - bottomY
+                    datum = GlobalBoundary(False, bottomY, True)
+                    target = Boundary(i, False, members(i).MaxY)
+                    If datum = 0 Or target = 0 Then Fail "Нет дальней кромки швеллера сверху: " & members(i).Label
+                    AddJob datum, target, False, value / viewScale, members(i).Label
+                End If
             Else
                 WriteLog "TOP excluded angle/other body=" & members(i).Label
             End If
@@ -785,6 +796,37 @@ Private Sub BuildPlan(ByVal mode As String)
     End If
     SortAndPlace mode
 End Sub
+
+Private Function FindFrontStation(ByVal target As Long, ByVal tolerance As Double) As Long
+    Dim i As Long, gap As Double, distance As Double, bestGap As Double, bestDistance As Double
+    bestGap = 1E+100: bestDistance = 1E+100
+    For i = 1 To memberCount
+        If members(i).Profile And members(i).AxisOK And members(i).Direction = "Y" Then
+            If members(target).MinY <= members(i).MaxY + tolerance And members(target).MaxY >= members(i).MinY - tolerance Then
+                gap = 0#
+                If members(target).MaxX < members(i).MinX Then gap = members(i).MinX - members(target).MaxX
+                If members(target).MinX > members(i).MaxX Then gap = members(target).MinX - members(i).MaxX
+                If gap <= 0.02 * viewScale + tolerance Then
+                    distance = Abs((members(target).MinX + members(target).MaxX - members(i).MinX - members(i).MaxX) / 2#)
+                    If gap < bestGap - tolerance Or (Abs(gap - bestGap) <= tolerance And distance < bestDistance) Then
+                        FindFrontStation = i
+                        bestGap = gap: bestDistance = distance
+                    End If
+                End If
+            End If
+        End If
+    Next i
+End Function
+
+Private Function TopNeedsRearY(ByVal index As Long, ByVal tolerance As Double) As Boolean
+    Dim text As String, word As Variant
+    If members(index).Direction <> "X" Then Exit Function
+    If members(index).MinY <= bottomY + tolerance Then Exit Function
+    text = LCase$(members(index).Metadata & " " & members(index).Label)
+    For Each word In Array("швеллер", "швелер", "channel", "upn")
+        If InStr(text, CStr(word)) > 0 Then TopNeedsRearY = True: Exit Function
+    Next word
+End Function
 
 Private Function TopEligible(ByVal index As Long) As Boolean
     Dim text As String, word As Variant
@@ -867,10 +909,10 @@ Private Function GlobalBoundary(ByVal vertical As Boolean, ByVal coordinate As D
     Next i
 End Function
 
-Private Sub AddJob(ByVal datum As Long, ByVal target As Long, ByVal horizontal As Boolean, ByVal value As Double, ByVal label As String)
+Private Sub AddJob(ByVal datum As Long, ByVal target As Long, ByVal horizontal As Boolean, ByVal value As Double, ByVal label As String, Optional ByVal station As Long = 0)
     Dim i As Long
     For i = 1 To jobCount
-        If jobs(i).Horizontal = horizontal Then
+        If jobs(i).Horizontal = horizontal And jobs(i).Station = station Then
             If Abs(jobs(i).Expected - value) <= MODEL_TOL Then
                 WriteLog "MERGED same coordinate: " & label & "; mm=" & CStr(value * 1000#)
                 Exit Sub
@@ -882,13 +924,15 @@ Private Sub AddJob(ByVal datum As Long, ByVal target As Long, ByVal horizontal A
     If jobCount > UBound(jobs) Then ReDim Preserve jobs(1 To UBound(jobs) + 64)
     jobs(jobCount).Datum = datum: jobs(jobCount).Target = target
     jobs(jobCount).Horizontal = horizontal: jobs(jobCount).Expected = value
-    jobs(jobCount).Label = label
+    jobs(jobCount).Label = label: jobs(jobCount).Station = station
 End Sub
 
 Private Sub SortAndPlace(ByVal mode As String)
     Dim i As Long, j As Long, temp As DimensionJob, nx As Long, ny As Long, nl As Long, nt As Long
     Dim bodyIndex As Long, onLeft As Boolean, drawing As SldWorks.DrawingDoc, sheet As SldWorks.Sheet
     Dim sheetWidth As Double, sheetHeight As Double
+    Dim station As Long, stationLeft() As Long, stationRight() As Long, localLeft As Double, localRight As Double
+    ReDim stationLeft(1 To memberCount): ReDim stationRight(1 To memberCount)
     Set drawing = doc: Set sheet = drawing.GetCurrentSheet
     sheet.GetSize sheetWidth, sheetHeight
     WriteLog "LAYOUT sheet mm=" & CStr(sheetWidth * 1000#) & "; " & CStr(sheetHeight * 1000#)
@@ -912,19 +956,36 @@ Private Sub SortAndPlace(ByVal mode As String)
             End If
         Else
             bodyIndex = edges(jobs(i).Target).Member
-            onLeft = False
-            If mode = "FRONT" Then onLeft = ((members(bodyIndex).MinX + members(bodyIndex).MaxX) / 2# < (leftX + rightX) / 2#)
-            If onLeft Then
-                If leftX - GAP - nl * STEP_GAP < 0.005 Then onLeft = False
+            station = jobs(i).Station
+            If mode = "FRONT" And station > 0 Then
+                localLeft = members(station).MinX: localRight = members(station).MaxX
+                onLeft = ((localLeft + localRight) / 2# < (leftX + rightX) / 2#)
+                If onLeft Then
+                    If localLeft - GAP - stationLeft(station) * STEP_GAP < 0.005 Then onLeft = False
+                Else
+                    If localRight + GAP + stationRight(station) * STEP_GAP > sheetWidth - 0.005 Then onLeft = True
+                End If
+                If onLeft Then
+                    jobs(i).AtX = localLeft - GAP - stationLeft(station) * STEP_GAP
+                    stationLeft(station) = stationLeft(station) + 1
+                Else
+                    jobs(i).AtX = localRight + GAP + stationRight(station) * STEP_GAP
+                    stationRight(station) = stationRight(station) + 1
+                End If
             Else
-                If rightX + GAP + ny * STEP_GAP > sheetWidth - 0.005 Then onLeft = True
-            End If
-            If onLeft Then
-                jobs(i).AtX = leftX - GAP - nl * STEP_GAP
-                nl = nl + 1
-            Else
-                jobs(i).AtX = rightX + GAP + ny * STEP_GAP
-                ny = ny + 1
+                onLeft = ((members(bodyIndex).MinX + members(bodyIndex).MaxX) / 2# < (leftX + rightX) / 2#)
+                If onLeft Then
+                    If leftX - GAP - nl * STEP_GAP < 0.005 Then onLeft = False
+                Else
+                    If rightX + GAP + ny * STEP_GAP > sheetWidth - 0.005 Then onLeft = True
+                End If
+                If onLeft Then
+                    jobs(i).AtX = leftX - GAP - nl * STEP_GAP
+                    nl = nl + 1
+                Else
+                    jobs(i).AtX = rightX + GAP + ny * STEP_GAP
+                    ny = ny + 1
+                End If
             End If
             jobs(i).AtY = (edges(jobs(i).Datum).Y1 + edges(jobs(i).Target).Y1) / 2#
         End If
@@ -932,7 +993,7 @@ Private Sub SortAndPlace(ByVal mode As String)
             Fail "Для размерных линий недостаточно места на листе. Передвиньте вид дальше от края."
         WriteLog "PLAN " & CStr(i) & "; horizontal=" & CStr(jobs(i).Horizontal) & "; mm=" & CStr(jobs(i).Expected * 1000#) & _
             "; target=" & jobs(i).Label & "; datumEdge=" & jobs(i).Datum & "; targetEdge=" & jobs(i).Target & _
-            "; anchor sheet mm=" & CStr(jobs(i).AtX * 1000#) & "; " & CStr(jobs(i).AtY * 1000#)
+            "; station=" & CStr(jobs(i).Station) & "; anchor sheet mm=" & CStr(jobs(i).AtX * 1000#) & "; " & CStr(jobs(i).AtY * 1000#)
     Next i
 End Sub
 

@@ -1,26 +1,117 @@
 {
-  "version": "FrameAutoSize R1.4",
-  "source_sha256": "e647814d0dd93cc66a0dba3c68df80f6e7db1b433d68e4bb99d6a433c35a163d",
+  "version": "FrameAutoSize R1.5",
+  "source_sha256": "3deff2f6c3460a59629551cd3b66f44af38bc91c97f59cbc45157b0f38aa3025",
   "grammar": {
     "file": "FrameAutoSize.txt",
-    "sha256": "e647814d0dd93cc66a0dba3c68df80f6e7db1b433d68e4bb99d6a433c35a163d",
+    "sha256": "3deff2f6c3460a59629551cd3b66f44af38bc91c97f59cbc45157b0f38aa3025",
     "grammar": "grammars-v4 VBA7.1 2766c2eed04f285dc763617c9459650892fcf5b9",
     "errors": [],
     "native_compile": false,
     "native_run": false
   },
-  "api": {
-    "scope": "Interop member and signature availability only; not VBA type checking or COM execution",
-    "members_checked": 85,
-    "constants_checked": 11,
-    "missing": [],
-    "assembly_sha256": "d6882de288a8a8c328e264f19b8466ad83793daa58a493665ebf88db6943eb51",
+  "front_station_replay": {
+    "scope": "Source arithmetic on captured front body bounds; not native execution",
+    "front_heights_mm": [
+      156.5,
+      182.0,
+      480.0,
+      480.0,
+      600.0,
+      600.0,
+      901.0,
+      1265.0,
+      1410.0
+    ],
+    "station_groups": 4,
+    "dimension_count": 9,
+    "separate_480_and_600_dimensions": true,
+    "local_anchors_closer_than_old_view_envelope": true,
+    "anchors": [
+      {
+        "height_mm": 156.5,
+        "station": 18,
+        "side": "right",
+        "anchor_mm": 196.816
+      },
+      {
+        "height_mm": 182.0,
+        "station": 8,
+        "side": "left",
+        "anchor_mm": 56.149
+      },
+      {
+        "height_mm": 480.0,
+        "station": 18,
+        "side": "right",
+        "anchor_mm": 202.816
+      },
+      {
+        "height_mm": 480.0,
+        "station": 14,
+        "side": "left",
+        "anchor_mm": 122.816
+      },
+      {
+        "height_mm": 600.0,
+        "station": 18,
+        "side": "right",
+        "anchor_mm": 208.816
+      },
+      {
+        "height_mm": 600.0,
+        "station": 17,
+        "side": "left",
+        "anchor_mm": 91.149
+      },
+      {
+        "height_mm": 901.0,
+        "station": 14,
+        "side": "left",
+        "anchor_mm": 116.816
+      },
+      {
+        "height_mm": 1265.0,
+        "station": 17,
+        "side": "left",
+        "anchor_mm": 85.149
+      },
+      {
+        "height_mm": 1410.0,
+        "station": 18,
+        "side": "right",
+        "anchor_mm": 214.816
+      }
+    ],
     "native_vba_compile": false,
     "native_solidworks_run": false
   },
-  "change": "Capture ActiveDoc before log; reuse one host; log PID/documents/selections before context failures; add DiagnoseContext without geometry or document changes",
-  "prior_feedback": "R1.3 failed with ActiveDoc=None at context; original log contains no host information. Cause not established.",
-  "geometry": "R1.3 geometry and layout unchanged; prior top replay and R1.2 front diagnostic remain applicable within their scope",
-  "native_vba_compile_R14": false,
-  "native_solidworks_run_R14": false
+  "top_selection_replay": {
+    "scope": "VBA selection expressions replayed on captured bounds; not native execution",
+    "X_mm": [
+      355.0,
+      600.0,
+      640.0,
+      1220.0
+    ],
+    "Y_mm": [
+      235.0,
+      350.0,
+      370.0,
+      410.0,
+      790.0
+    ],
+    "captured_bodies": 19,
+    "eligible_tubes_channels": 14,
+    "angle_bodies_excluded": 5,
+    "anchors_fit_420x297_sheet": true,
+    "translation_invariance": true,
+    "native_vba_compile": false,
+    "native_solidworks_run": false
+  },
+  "api": "No API additions relative to R1.4; 85 members and 11 constants previously audited",
+  "user_confirmation": "Separate equal heights by station; add far edges of two horizontal channels in top view",
+  "change": "Station-local front placement and deduplication; top far-channel Y and target-side placement",
+  "prior_native_evidence": "R1.4 user screenshots show dimensions on both views; R1.4 diagnostics passed geometry/planning/edge selection. R1.5 not run natively.",
+  "native_vba_compile_R15": false,
+  "native_solidworks_run_R15": false
 }
