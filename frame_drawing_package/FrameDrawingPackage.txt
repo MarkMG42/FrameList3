@@ -1,7 +1,7 @@
 Attribute VB_Name = "FrameDrawingPackage"
 Option Explicit
 
-Private Const VERSION As String = "FrameDrawingPackage P1.1"
+Private Const VERSION As String = "FrameDrawingPackage P2"
 Private Const DRAWING_TEMPLATE As String = ""
 Private Const FRAME_TOKEN As String = "рама"
 Private Type FrameTask
@@ -9,6 +9,7 @@ Private Type FrameTask
     InstanceName As String
     PartPath As String
     PartConfig As String
+    DisplayState As String
 End Type
 Private tasks() As FrameTask
 Private taskCount As Long
@@ -16,16 +17,19 @@ Private host As SldWorks.SldWorks
 Private assemblyModel As SldWorks.ModelDoc2
 Private drawingModel As SldWorks.ModelDoc2
 Private originalAssemblyConfig As String
+Private originalDisplayState As String
+Private overviewDisplayState As String
 Private originalPartConfigs As Object
 Private partModels As Collection
 Private warnings As Collection
 Private audit As Collection
+Private pinnedViews As Collection
 Private stage As String
 Private completed As Long
 
 Public Sub main()
     On Error GoTo Failed
-    Dim selectedConfigs As Collection, config As Variant, template As String
+    Dim selectedStates As Collection, stateName As Variant, template As String
     Dim firstSheet As SldWorks.Sheet, drawing As SldWorks.DrawingDoc, names As Variant
     Dim i As Long, failure As String, restored As String, resultState As String
     ResetState
@@ -35,15 +39,18 @@ Public Sub main()
     Call FramePackageSupport.Require(assemblyModel.GetType = swDocASSEMBLY, "Запускайте макрос из сборки.")
     Call FramePackageSupport.Require(Len(assemblyModel.GetPathName) > 0, "Сначала сохраните сборку.")
     originalAssemblyConfig = assemblyModel.ConfigurationManager.ActiveConfiguration.Name
+    originalDisplayState = ActiveDisplayState()
     CaptureLoadedPartConfigurations
-    Set selectedConfigs = ChooseConfigurations()
-    If selectedConfigs Is Nothing Then ClearReferences: Exit Sub
-    stage = "Поиск рам в конфигурациях"
-    For Each config In selectedConfigs
-        SetAssemblyConfiguration CStr(config)
-        DiscoverFrames CStr(config)
-    Next config
-    Call FramePackageSupport.Require(taskCount > 0, "В выбранных конфигурациях нет видимых деталей рам. Проверьте имя детали и загрузку компонентов.")
+    overviewDisplayState = ChooseOverviewState()
+    If Len(overviewDisplayState) = 0 Then ClearReferences: Exit Sub
+    Set selectedStates = ChooseFrameStates()
+    If selectedStates Is Nothing Then ClearReferences: Exit Sub
+    stage = "Поиск рам в состояниях отображения"
+    For Each stateName In selectedStates
+        SetAssemblyState originalAssemblyConfig, CStr(stateName)
+        DiscoverFrames originalAssemblyConfig, CStr(stateName)
+    Next stateName
+    Call FramePackageSupport.Require(taskCount > 0, "Не найдены детали рам в выбранных состояниях отображения.")
     stage = "Шаблон нового чертежа"
     template = DrawingTemplatePath()
     If Len(template) = 0 Then
@@ -66,8 +73,10 @@ Public Sub main()
     Call FramePackageSupport.Require(LBound(sheetProps) = 0 And UBound(sheetProps) >= 6, "Неполные свойства листа шаблона.")
     firstSheet.GetSize width, height
     Call FramePackageSupport.Require(width >= 0.419 And height >= 0.296, "Для комплекта нужен формат не меньше A3 в альбомной ориентации.")
+    FramePackageSupport.HideConstructionGeometry drawingModel
+    BuildOverview firstSheet, width, height
     For i = 1 To taskCount
-        BuildTask i, firstSheet, sheetProps, sheetFormat, width, height
+        BuildTask i, sheetProps, sheetFormat, width, height
         completed = completed + 1
     Next i
     stage = "Восстановление исходных конфигураций"
@@ -77,13 +86,14 @@ Public Sub main()
     drawingModel.EditRebuild3
     stage = "Проверка размеров после восстановления конфигураций"
     FramePackageSupport.ValidateAudit audit
+    ValidatePinnedViews
     names = drawing.GetSheetNames
-    Call FramePackageSupport.Require(UBound(names) - LBound(names) + 1 = 3 * taskCount, "Число листов не совпадает с числом рам.")
+    Call FramePackageSupport.Require(UBound(names) - LBound(names) + 1 = 1 + 3 * taskCount, "Число листов не совпадает с числом рам.")
     drawingModel.GraphicsRedraw2
     If warnings.Count = 0 Then
         MsgBox "выполнено успешно", vbInformation, VERSION
     Else
-        MsgBox "Чертёж создан: рам=" & completed & "; листов=" & 3 * completed & "." & vbCrLf & _
+        MsgBox "Чертёж создан: рам=" & completed & "; листов=" & 1 + 3 * completed & "." & vbCrLf & _
             "Есть пропуски или предупреждения:" & vbCrLf & WarningText(), vbExclamation, VERSION
     End If
     ClearReferences
@@ -112,15 +122,15 @@ End Sub
 
 Private Sub ResetState()
     ClearReferences
-    Erase tasks: taskCount = 0: completed = 0: stage = "Инициализация": originalAssemblyConfig = ""
+    Erase tasks: taskCount = 0: completed = 0: stage = "Инициализация": originalAssemblyConfig = "": originalDisplayState = "": overviewDisplayState = ""
     Set originalPartConfigs = CreateObject("Scripting.Dictionary")
     originalPartConfigs.CompareMode = vbTextCompare
-    Set partModels = New Collection: Set warnings = New Collection: Set audit = New Collection
+    Set partModels = New Collection: Set warnings = New Collection: Set audit = New Collection: Set pinnedViews = New Collection
 End Sub
 
 Private Sub ClearReferences()
     Set host = Nothing: Set assemblyModel = Nothing: Set drawingModel = Nothing
-    Set originalPartConfigs = Nothing: Set partModels = Nothing: Set warnings = Nothing: Set audit = Nothing
+    Set originalPartConfigs = Nothing: Set partModels = Nothing: Set warnings = Nothing: Set audit = Nothing: Set pinnedViews = Nothing
 End Sub
 
 Private Sub CaptureLoadedPartConfigurations()
@@ -143,45 +153,86 @@ Private Sub CaptureLoadedPartConfigurations()
     Next i
 End Sub
 
-Private Function ChooseConfigurations() As Collection
-    Dim values As Variant, result As Collection, text As String, answer As String, pieces As Variant, token As Variant
-    Dim selected As Object, i As Long, index As Long
-    values = assemblyModel.GetConfigurationNames
-    Call FramePackageSupport.Require(FramePackageSupport.HasItems(values), "Не найден список конфигураций сборки.")
-    Set result = New Collection
-    If UBound(values) = LBound(values) Then
-        result.Add CStr(values(LBound(values)))
-        Set ChooseConfigurations = result
-        Exit Function
-    End If
-    text = "Один чертёж, по три листа на каждую раму выбранных конфигураций." & vbCrLf & _
-        "0 — только текущая; * — все; либо номера через запятую:" & vbCrLf
+Private Function ActiveDisplayState() As String
+    Dim values As Variant
+    values = assemblyModel.ConfigurationManager.ActiveConfiguration.GetDisplayStates
+    Call FramePackageSupport.Require(FramePackageSupport.HasItems(values), "Нет состояний отображения сборки.")
+    ' SolidWorks documents the first element as the active display state.
+    ActiveDisplayState = CStr(values(LBound(values)))
+End Function
+
+Private Function DisplayStateNames() As Variant
+    Dim values As Variant
+    values = assemblyModel.ConfigurationManager.ActiveConfiguration.GetDisplayStates
+    Call FramePackageSupport.Require(FramePackageSupport.HasItems(values), "Нет состояний отображения.")
+    DisplayStateNames = values
+End Function
+
+Private Function ChooseOverviewState() As String
+    Dim values As Variant, text As String, answer As String, i As Long, choice As Long, suggested As String
+    values = DisplayStateNames(): suggested = "1"
+    text = "Выберите состояние для ПЕРВОГО общего листа: вся сборка, без размеров." & vbCrLf
     For i = LBound(values) To UBound(values)
         text = text & CStr(i - LBound(values) + 1) & ". " & CStr(values(i)) & vbCrLf
+        If InStr(1, CStr(values(i)), "по умолчанию", vbTextCompare) > 0 Or _
+           InStr(1, CStr(values(i)), "default", vbTextCompare) > 0 Then suggested = CStr(i - LBound(values) + 1)
     Next i
-    answer = Trim$(InputBox(text, VERSION, "0"))
+    answer = Trim$(InputBox(text, VERSION, suggested))
     If Len(answer) = 0 Then Exit Function
-    If answer = "0" Then
-        result.Add originalAssemblyConfig
-    ElseIf answer = "*" Then
-        For i = LBound(values) To UBound(values): result.Add CStr(values(i)): Next i
+    Call FramePackageSupport.Require(IsNumeric(answer), "Нужен номер общего состояния.")
+    Call FramePackageSupport.Require(CDbl(answer) = Fix(CDbl(answer)), "Номер должен быть целым.")
+    choice = CLng(answer) + LBound(values) - 1
+    Call FramePackageSupport.Require(choice >= LBound(values) And choice <= UBound(values), "Номер вне списка состояний.")
+    ChooseOverviewState = CStr(values(choice))
+End Function
+
+Private Function ChooseFrameStates() As Collection
+    Dim values As Variant, text As String, answer As String, suggested As String, pieces As Variant, token As Variant
+    Dim result As Collection, seen As Object, i As Long, choice As Long, name As String
+    values = DisplayStateNames()
+    text = "Выберите состояния ОТДЕЛЬНЫХ рам: номера через запятую; * — все, кроме общего." & vbCrLf & _
+        "В каждом должна быть видна ровно одна деталь рамы .sldprt с её оснащением." & vbCrLf
+    For i = LBound(values) To UBound(values)
+        name = CStr(values(i))
+        text = text & CStr(i - LBound(values) + 1) & ". " & name & vbCrLf
+        If StrComp(name, overviewDisplayState, vbTextCompare) <> 0 Then
+            If InStr(1, name, FRAME_TOKEN, vbTextCompare) > 0 Or InStr(1, name, "frame", vbTextCompare) > 0 Then
+                If Len(suggested) > 0 Then suggested = suggested & ","
+                suggested = suggested & CStr(i - LBound(values) + 1)
+            End If
+        End If
+    Next i
+    answer = Trim$(InputBox(text, VERSION, suggested))
+    If Len(answer) = 0 Then Exit Function
+    Set result = New Collection: Set seen = CreateObject("Scripting.Dictionary")
+    If answer = "*" Then
+        For i = LBound(values) To UBound(values)
+            If StrComp(CStr(values(i)), overviewDisplayState, vbTextCompare) <> 0 Then result.Add CStr(values(i))
+        Next i
     Else
-        Set selected = CreateObject("Scripting.Dictionary")
         pieces = Split(Replace(answer, ";", ","), ",")
         For Each token In pieces
             token = Trim$(CStr(token))
-            Call FramePackageSupport.Require(Len(token) > 0 And IsNumeric(token), "Некорректный номер конфигурации.")
-            Call FramePackageSupport.Require(CDbl(token) = Fix(CDbl(token)), "Номер конфигурации должен быть целым.")
-            index = CLng(token) + LBound(values) - 1
-            Call FramePackageSupport.Require(index >= LBound(values) And index <= UBound(values), "Номер конфигурации вне списка.")
-            If selected.Exists(CStr(index)) = False Then
-                selected.Add CStr(index), True
-                result.Add CStr(values(index))
-            End If
+            Call FramePackageSupport.Require(IsNumeric(token), "Нужен номер состояния отображения.")
+            Call FramePackageSupport.Require(CDbl(token) = Fix(CDbl(token)), "Номер должен быть целым.")
+            choice = CLng(token) + LBound(values) - 1
+            Call FramePackageSupport.Require(choice >= LBound(values) And choice <= UBound(values), "Номер состояния вне списка.")
+            name = CStr(values(choice))
+            If seen.Exists(name) = False Then seen.Add name, True: result.Add name
         Next token
     End If
-    Set ChooseConfigurations = result
+    Call FramePackageSupport.Require(result.Count > 0, "Не выбраны отдельные рамы.")
+    Set ChooseFrameStates = result
 End Function
+
+Private Sub SetAssemblyState(ByVal config As String, ByVal stateName As String)
+    SetAssemblyConfiguration config
+    Call FramePackageSupport.Require(assemblyModel.ConfigurationManager.ActiveConfiguration.ApplyDisplayState(stateName), _
+        "Не применено состояние отображения: " & stateName)
+    assemblyModel.EditRebuild3
+    Call FramePackageSupport.Require(StrComp(ActiveDisplayState(), stateName, vbTextCompare) = 0, _
+        "Не подтверждено состояние отображения: " & stateName)
+End Sub
 
 Private Sub SetAssemblyConfiguration(ByVal config As String)
     FramePackageSupport.ActivateDocument host, assemblyModel
@@ -193,14 +244,13 @@ Private Sub SetAssemblyConfiguration(ByVal config As String)
     assemblyModel.EditRebuild3
 End Sub
 
-Private Sub DiscoverFrames(ByVal config As String)
+Private Sub DiscoverFrames(ByVal config As String, ByVal stateName As String)
     Dim assembly As SldWorks.AssemblyDoc, values As Variant, component As SldWorks.Component2
     Dim model As SldWorks.ModelDoc2, i As Long, before As Long, path As String
     Set assembly = assemblyModel
     values = assembly.GetComponents(False)
     If FramePackageSupport.HasItems(values) = False Then
-        warnings.Add "В конфигурации " & config & " нет компонентов."
-        Exit Sub
+        Call FramePackageSupport.Require(False, "В состоянии нет компонентов: " & stateName)
     End If
     before = taskCount
     For i = LBound(values) To UBound(values)
@@ -213,6 +263,7 @@ Private Sub DiscoverFrames(ByVal config As String)
                 taskCount = taskCount + 1
                 If taskCount = 1 Then ReDim tasks(1 To 16)
                 If taskCount > UBound(tasks) Then ReDim Preserve tasks(1 To UBound(tasks) + 16)
+                tasks(taskCount).DisplayState = stateName
                 tasks(taskCount).AssemblyConfig = config
                 tasks(taskCount).InstanceName = component.Name2
                 tasks(taskCount).PartPath = path
@@ -220,7 +271,7 @@ Private Sub DiscoverFrames(ByVal config As String)
             End If
         End If
     Next i
-    If taskCount = before Then warnings.Add "В конфигурации " & config & " не найдено видимых рам."
+    Call FramePackageSupport.Require(taskCount - before = 1, "Состояние [" & stateName & "] должно показывать ровно одну деталь рамы; найдено: " & CStr(taskCount - before))
 End Sub
 
 Private Function IsEffectivelyVisible(ByVal component As SldWorks.Component2) As Boolean
@@ -278,7 +329,36 @@ Private Sub ActivatePartConfig(ByVal model As SldWorks.ModelDoc2, ByVal config A
         "Не подтверждена конфигурация детали: " & config)
 End Sub
 
-Private Sub BuildTask(ByVal index As Long, ByVal firstSheet As SldWorks.Sheet, ByVal props As Variant, _
+Private Sub PinView(ByVal view As SldWorks.View, ByVal stateName As String)
+    Dim record As Variant
+    FramePackageSupport.ApplyViewDisplayState drawingModel, view, stateName
+    ReDim record(0 To 1)
+    Set record(0) = view: record(1) = stateName
+    pinnedViews.Add record
+End Sub
+
+Private Sub ValidatePinnedViews()
+    Dim record As Variant, view As SldWorks.View
+    For Each record In pinnedViews
+        Set view = record(0)
+        Call FramePackageSupport.Require(StrComp(view.DisplayState, CStr(record(1)), vbTextCompare) = 0, _
+            "Изменилось состояние отображения вида: " & view.GetName2)
+    Next record
+End Sub
+
+Private Sub BuildOverview(ByVal firstSheet As SldWorks.Sheet, ByVal width As Double, ByVal height As Double)
+    Dim view As SldWorks.View
+    stage = "Общий вид всей сборки"
+    SetAssemblyState originalAssemblyConfig, overviewDisplayState
+    FramePackageSupport.ActivateDocument host, drawingModel
+    firstSheet.SetName "Общий_вид"
+    FramePackageSupport.ActivateSheet host, drawingModel, "Общий_вид"
+    Set view = FramePackageSupport.StandardView(drawingModel, assemblyModel.GetPathName, originalAssemblyConfig, "ISO", "OVERVIEW")
+    PinView view, overviewDisplayState
+    FramePackageSupport.FitView drawingModel, view, 0.03, 0.045, width - 0.01, height - 0.015
+End Sub
+
+Private Sub BuildTask(ByVal index As Long, ByVal props As Variant, _
                       ByVal sheetFormat As String, ByVal width As Double, ByVal height As Double)
     Dim frame As SldWorks.Component2, part As SldWorks.ModelDoc2, drawing As SldWorks.DrawingDoc
     Dim iso As SldWorks.View, drilling As SldWorks.View, front As SldWorks.View, top As SldWorks.View
@@ -286,7 +366,7 @@ Private Sub BuildTask(ByVal index As Long, ByVal firstSheet As SldWorks.Sheet, B
     prefix = "F" & Format$(index, "000")
     sheetBase = prefix & "_" & FrameHint(tasks(index).PartPath)
     stage = prefix & ": конфигурация " & tasks(index).AssemblyConfig
-    SetAssemblyConfiguration tasks(index).AssemblyConfig
+    SetAssemblyState tasks(index).AssemblyConfig, tasks(index).DisplayState
     Set frame = ResolveTask(index)
     Set part = frame.GetModelDoc2
     Call FramePackageSupport.Require((part Is Nothing) = False, "Не загружена деталь рамы.")
@@ -295,13 +375,9 @@ Private Sub BuildTask(ByVal index As Long, ByVal firstSheet As SldWorks.Sheet, B
     sheetName = sheetBase & "_Общий"
     stage = sheetName & ": сборка и длины"
     FramePackageSupport.ActivateDocument host, drawingModel
-    If index = 1 Then
-        firstSheet.SetName sheetName
-        FramePackageSupport.ActivateSheet host, drawingModel, sheetName
-    Else
-        AddSheet sheetName, props, sheetFormat, width, height
-    End If
+    AddSheet sheetName, props, sheetFormat, width, height
     Set iso = FramePackageSupport.StandardView(drawingModel, assemblyModel.GetPathName, tasks(index).AssemblyConfig, "ISO", prefix & "_ISO")
+    PinView iso, tasks(index).DisplayState
     iso.ProjectedDimensions = False
     Call FramePackageSupport.Require(iso.ProjectedDimensions = False, "Не включён истинный режим длин на изометрии.")
     FramePackageSupport.FitView drawingModel, iso, 0.045, 0.055, width - 0.045, height - 0.035
@@ -312,7 +388,8 @@ Private Sub BuildTask(ByVal index As Long, ByVal firstSheet As SldWorks.Sheet, B
     stage = sheetName & ": деталь рамы и сверловка"
     AddSheet sheetName, props, sheetFormat, width, height
     Set drilling = FramePackageSupport.StandardView(drawingModel, tasks(index).PartPath, tasks(index).PartConfig, "ISO", prefix & "_DRILL_SOURCE")
-    FramePackageSupport.FitView drawingModel, drilling, 0.025, height - 0.10, 0.11, height - 0.025
+    FramePackageSupport.SetSheetScale drawingModel, 1#, 10#
+    FramePackageSupport.SetScaleAndPlace drawingModel, drilling, 0.1, 0.03, 0.055
     warning = InsertWeldWithHoles.RunForPackage(host, drawingModel, drilling, count)
     If Len(warning) > 0 Then warnings.Add sheetName & ": " & warning
     FramePackageSupport.ActivateSheet host, drawingModel, sheetName
@@ -322,9 +399,12 @@ Private Sub BuildTask(ByVal index As Long, ByVal firstSheet As SldWorks.Sheet, B
     AddSheet sheetName, props, sheetFormat, width, height
     Set front = FramePackageSupport.StandardView(drawingModel, assemblyModel.GetPathName, tasks(index).AssemblyConfig, "FRONT", prefix & "_FRONT")
     Set top = FramePackageSupport.StandardView(drawingModel, assemblyModel.GetPathName, tasks(index).AssemblyConfig, "TOP", prefix & "_TOP")
-    FramePackageSupport.FitPair drawingModel, front, top, width, height
+    PinView front, tasks(index).DisplayState
+    PinView top, tasks(index).DisplayState
+    FramePackageSupport.FitMountingPair host, drawingModel, front, top, frame, width, height
     dimensions = FrameAutoSize.RunForPackage(host, drawingModel, front, frame, "FRONT")
     dimensions = dimensions + FrameAutoSize.RunForPackage(host, drawingModel, top, frame, "TOP")
+    FramePackageSupport.CheckMountingPair drawingModel, front, top, width, height
     FramePackageSupport.AuditCurrentSheet drawingModel, audit
     Debug.Print prefix & "; " & tasks(index).InstanceName & "; config=" & tasks(index).AssemblyConfig & "; mounting dimensions=" & dimensions
 End Sub
@@ -376,6 +456,13 @@ Private Function RestoreSourceState() As String
     End If
     If Not assemblyModel Is Nothing Then
         If Len(originalAssemblyConfig) > 0 Then message = message & RestoreOneConfiguration(assemblyModel, originalAssemblyConfig)
+        If Len(originalDisplayState) > 0 Then
+            If assemblyModel.ConfigurationManager.ActiveConfiguration.ApplyDisplayState(originalDisplayState) = False Then
+                message = message & "Не восстановлено исходное состояние отображения." & vbCrLf
+            ElseIf StrComp(ActiveDisplayState(), originalDisplayState, vbTextCompare) <> 0 Then
+                message = message & "Не подтверждено восстановление состояния отображения." & vbCrLf
+            End If
+        End If
     End If
     RestoreSourceState = message
     Exit Function

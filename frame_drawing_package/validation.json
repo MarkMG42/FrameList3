@@ -1,10 +1,10 @@
 {
-  "version": "FrameDrawingPackage P1.1",
+  "version": "FrameDrawingPackage P2",
   "grammar": {
     "reports": [
       {
         "file": "FrameAutoSize.txt",
-        "sha256": "b5f52dda5d8e0d19d2e0522755f287b3f3a094dcbc56fc0627fa0a65e3e72c63",
+        "sha256": "e807668d1605e87f36b2c73ac0d4bf4abad6c7a6977a6928acdd4f06b2a2ccd0",
         "errors": []
       },
       {
@@ -14,12 +14,12 @@
       },
       {
         "file": "FrameDrawingPackage.txt",
-        "sha256": "d6ff9acb49f47d9b515c3502c1d2237746af4fa5e888a715afbc83979abe5aa6",
+        "sha256": "50b85c32c88927fd72b1cba4a26b9f301037904a81228354dcd2a2afb4660f28",
         "errors": []
       },
       {
         "file": "FramePackageSupport.txt",
-        "sha256": "d486e4ad7b3f16202adce0936824a0fb25a24a78161985a4aad1b16783f81ee7",
+        "sha256": "5c961a3570b8f83484b907d5c0c102b254340beae1775dd50d5af29d3478eb90",
         "errors": []
       },
       {
@@ -37,8 +37,12 @@
     ],
     "file_output_statements": [],
     "embedded_and_supplied_cutlist_equal_ignoring_case": true,
-    "explicit_require_calls_checked": 59,
+    "explicit_require_calls_checked": 86,
     "cross_module_contracts_checked": true,
+    "display_state_binding_checked": true,
+    "overview_without_dimension_calls_checked": true,
+    "sheet_scale_1_10_checked": true,
+    "mounting_dry_plan_before_create_checked": true,
     "stage_order_checked": true,
     "task_sheet_counts_checked": [
       1,
@@ -46,8 +50,8 @@
       4,
       12
     ],
-    "api_members_checked": 60,
-    "constants_checked": 7,
+    "api_members_checked": 71,
+    "constants_checked": 12,
     "api": [
       {
         "interface": "ISldWorks",
@@ -98,6 +102,15 @@
         "parameters": [
           "Object1",
           "Object2"
+        ]
+      },
+      {
+        "interface": "IModelDoc2",
+        "member": "SetUserPreferenceToggle",
+        "signature": "2002020802",
+        "parameters": [
+          "UserPreferenceValue",
+          "OnFlag"
         ]
       },
       {
@@ -273,6 +286,17 @@
       },
       {
         "interface": "ISheet",
+        "member": "SetScale",
+        "signature": "2004020d0d0202",
+        "parameters": [
+          "Numerator",
+          "Denominator",
+          "ScaleAnnoPosition",
+          "ScaleAnnoTextHeight"
+        ]
+      },
+      {
+        "interface": "ISheet",
         "member": "GetProperties",
         "signature": "20001c",
         "parameters": []
@@ -305,6 +329,20 @@
         "member": "GetName",
         "signature": "20000e",
         "parameters": []
+      },
+      {
+        "interface": "IView",
+        "member": "get_DisplayState",
+        "signature": "20000e",
+        "parameters": []
+      },
+      {
+        "interface": "IView",
+        "member": "set_DisplayState",
+        "signature": "2001010e",
+        "parameters": [
+          "Retval"
+        ]
       },
       {
         "interface": "IView",
@@ -454,15 +492,67 @@
       },
       {
         "interface": "IAnnotation",
+        "member": "GetPosition",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "IAnnotation",
+        "member": "GetTextFormat",
+        "signature": "20011c08",
+        "parameters": [
+          "Index"
+        ]
+      },
+      {
+        "interface": "IAnnotation",
+        "member": "SetTextFormat",
+        "signature": "20030208021c",
+        "parameters": [
+          "Index",
+          "UseDoc",
+          "TextFormat"
+        ]
+      },
+      {
+        "interface": "IAnnotation",
         "member": "IsDangling",
         "signature": "200002",
         "parameters": []
+      },
+      {
+        "interface": "ITextFormat",
+        "member": "get_CharHeight",
+        "signature": "20000d",
+        "parameters": []
+      },
+      {
+        "interface": "ITextFormat",
+        "member": "set_CharHeight",
+        "signature": "2001010d",
+        "parameters": [
+          "Height"
+        ]
       },
       {
         "interface": "IConfigurationManager",
         "member": "get_ActiveConfiguration",
         "signature": "2000128288",
         "parameters": []
+      },
+      {
+        "interface": "IConfiguration",
+        "member": "GetDisplayStates",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "IConfiguration",
+        "member": "ApplyDisplayState",
+        "signature": "2001020e",
+        "parameters": [
+          "DisplayStateName"
+        ]
       },
       {
         "interface": "IConfiguration",
@@ -479,9 +569,9 @@
   "native_solidworks_run": false,
   "source_sha256": {
     "FrameCutListDimensionsV3.txt": "33bfb2f92a517508d6469c60748923954943a2b545a3102882558ae8c9d8bc1c",
-    "FrameDrawingPackage.txt": "d6ff9acb49f47d9b515c3502c1d2237746af4fa5e888a715afbc83979abe5aa6",
-    "FrameAutoSize.txt": "b5f52dda5d8e0d19d2e0522755f287b3f3a094dcbc56fc0627fa0a65e3e72c63",
-    "FramePackageSupport.txt": "d486e4ad7b3f16202adce0936824a0fb25a24a78161985a4aad1b16783f81ee7",
+    "FrameDrawingPackage.txt": "50b85c32c88927fd72b1cba4a26b9f301037904a81228354dcd2a2afb4660f28",
+    "FrameAutoSize.txt": "e807668d1605e87f36b2c73ac0d4bf4abad6c7a6977a6928acdd4f06b2a2ccd0",
+    "FramePackageSupport.txt": "5c961a3570b8f83484b907d5c0c102b254340beae1775dd50d5af29d3478eb90",
     "InsertWeldWithHoles.txt": "96316b5e4568ee6dc928ebd30d95ca81e126ec6ae50130f5784be20b87cd549b"
   },
   "internal_network_template_path_removed": true,

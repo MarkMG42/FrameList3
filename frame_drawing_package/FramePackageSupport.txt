@@ -199,3 +199,147 @@ Public Sub ValidateAudit(ByVal audit As Collection)
         Call Require(annotation.IsDangling = False, "После восстановления конфигураций размер потерял привязку.")
     Next record
 End Sub
+
+Public Sub ApplyViewDisplayState(ByVal model As SldWorks.ModelDoc2, ByVal view As SldWorks.View, ByVal stateName As String)
+    view.DisplayState = stateName
+    model.EditRebuild3
+    Call Require(StrComp(view.DisplayState, stateName, vbTextCompare) = 0, "Не закреплено состояние вида: " & stateName)
+End Sub
+
+Public Sub HideConstructionGeometry(ByVal model As SldWorks.ModelDoc2)
+    ' Document-only display settings; do not modify the source assembly or application preferences.
+    Call Require(model.SetUserPreferenceToggle(swDisplayAxes, False), "Не скрыты вспомогательные оси.")
+    Call Require(model.SetUserPreferenceToggle(swDisplayTemporaryAxes, False), "Не скрыты временные оси.")
+    Call Require(model.SetUserPreferenceToggle(swDisplayPlanes, False), "Не скрыты вспомогательные плоскости.")
+    Call Require(model.SetUserPreferenceToggle(swDisplayOrigins, False), "Не скрыты начала координат.")
+    Call Require(model.SetUserPreferenceToggle(swDisplaySketches, False), "Не скрыты вспомогательные эскизы.")
+End Sub
+
+Public Sub SetSheetScale(ByVal model As SldWorks.ModelDoc2, ByVal numerator As Double, ByVal denominator As Double)
+    Dim drawing As SldWorks.DrawingDoc, sheet As SldWorks.Sheet, props As Variant
+    Set drawing = model: Set sheet = drawing.GetCurrentSheet
+    Call Require(sheet.SetScale(numerator, denominator, False, False), "Не применён масштаб листа.")
+    props = sheet.GetProperties
+    Call Require(Abs(CDbl(props(2)) / CDbl(props(3)) - numerator / denominator) < 0.00000001, "Не подтверждён масштаб листа.")
+End Sub
+
+Public Sub SetScaleAndPlace(ByVal model As SldWorks.ModelDoc2, ByVal view As SldWorks.View, _
+                            ByVal layoutScale As Double, ByVal x As Double, ByVal y As Double)
+    view.UseSheetScale = False: view.ScaleDecimal = layoutScale
+    model.EditRebuild3
+    PlaceLowerLeft model, view, x, y
+    Call Require(Abs(view.ScaleDecimal - layoutScale) < 0.00000001, "Не подтверждён масштаб вида.")
+End Sub
+
+Public Sub FormatMountingDimension(ByVal display As SldWorks.DisplayDimension)
+    Dim annotation As SldWorks.Annotation, format As SldWorks.TextFormat
+    Set annotation = display.GetAnnotation
+    Set format = annotation.GetTextFormat(0)
+    Call Require((format Is Nothing) = False, "Нет формата текста монтажного размера.")
+    format.CharHeight = 0.0035
+    Call Require(annotation.SetTextFormat(0, False, format), "Не установлен текст размеров 3,5 мм.")
+End Sub
+
+Private Function Smaller(ByVal a As Double, ByVal b As Double) As Double
+    Smaller = a
+    If b < a Then Smaller = b
+End Function
+
+Private Function Padding(ByVal geometry As Variant, ByVal envelope As Variant) As Variant
+    Dim left As Double, bottom As Double, right As Double, top As Double
+    left = geometry(0) - envelope(0): bottom = geometry(1) - envelope(1)
+    right = envelope(2) - geometry(2): top = envelope(3) - geometry(3)
+    If left < 0# Then left = 0#
+    If bottom < 0# Then bottom = 0#
+    If right < 0# Then right = 0#
+    If top < 0# Then top = 0#
+    Padding = Array(left + right, bottom + top)
+End Function
+
+Private Sub MoveEnvelope(ByVal model As SldWorks.ModelDoc2, ByVal view As SldWorks.View, _
+                         ByVal envelope As Variant, ByVal x As Double, ByVal y As Double)
+    Dim position As Variant
+    position = view.Position
+    position(0) = position(0) + x - envelope(0): position(1) = position(1) + y - envelope(1)
+    view.Position = position
+    model.EditRebuild3
+End Sub
+
+Public Sub FitMountingPair(ByVal host As SldWorks.SldWorks, ByVal model As SldWorks.ModelDoc2, _
+                           ByVal front As SldWorks.View, ByVal top As SldWorks.View, _
+                           ByVal frame As SldWorks.Component2, ByVal width As Double, ByVal height As Double)
+    Dim a As Variant, b As Variant, ea As Variant, eb As Variant, pa As Variant, pb As Variant
+    Dim fw As Double, fh As Double, tw As Double, th As Double, availableW As Double, availableH As Double
+    Dim horizontal As Double, vertical As Double, layoutScale As Double, current As Double, gap As Double
+    Dim ew1 As Double, eh1 As Double, ew2 As Double, eh2 As Double, pass As Long, sideBySide As Boolean
+    availableW = width - 0.035: availableH = height - 0.06: gap = 0.012
+    Call Require(availableW > 0# And availableH > 0#, "Недостаточный формат для монтажных видов.")
+    SetScaleAndPlace model, front, 0.1, 0.10, 0.10
+    SetScaleAndPlace model, top, 0.1, 0.10, 0.10
+    For pass = 1 To 3
+        current = front.ScaleDecimal
+        a = ViewBox(front): b = ViewBox(top)
+        ea = FrameAutoSize.MeasureForPackage(host, model, front, frame, "FRONT")
+        eb = FrameAutoSize.MeasureForPackage(host, model, top, frame, "TOP")
+        pa = Padding(a, ea): pb = Padding(b, eb)
+        fw = (a(2) - a(0)) / current: fh = (a(3) - a(1)) / current
+        tw = (b(2) - b(0)) / current: th = (b(3) - b(1)) / current
+        Call Require(fw > 0# And fh > 0# And tw > 0# And th > 0#, "Пустой габарит монтажных видов.")
+        horizontal = Smaller((availableW - gap - pa(0) - pb(0)) / (fw + tw), _
+                     Smaller((availableH - pa(1)) / fh, (availableH - pb(1)) / th))
+        vertical = Smaller((availableH - gap - pa(1) - pb(1)) / (fh + th), _
+                   Smaller((availableW - pa(0)) / fw, (availableW - pb(0)) / tw))
+        sideBySide = (horizontal >= vertical)
+        If sideBySide Then layoutScale = horizontal Else layoutScale = vertical
+        layoutScale = layoutScale * 0.985
+        Call Require(layoutScale > 0#, "Для модели и размерных линий недостаточно места внутри рамки.")
+        front.ScaleDecimal = layoutScale: top.ScaleDecimal = layoutScale
+        model.EditRebuild3
+        ea = FrameAutoSize.MeasureForPackage(host, model, front, frame, "FRONT")
+        eb = FrameAutoSize.MeasureForPackage(host, model, top, frame, "TOP")
+        ew1 = ea(2) - ea(0): eh1 = ea(3) - ea(1): ew2 = eb(2) - eb(0): eh2 = eb(3) - eb(1)
+        If sideBySide Then
+            MoveEnvelope model, front, ea, 0.025 + (availableW - ew1 - ew2 - gap) / 2#, 0.045 + (availableH - eh1) / 2#
+            MoveEnvelope model, top, eb, 0.025 + (availableW - ew1 - ew2 - gap) / 2# + ew1 + gap, 0.045 + (availableH - eh2) / 2#
+        Else
+            MoveEnvelope model, top, eb, 0.025 + (availableW - ew2) / 2#, 0.045 + (availableH - eh1 - eh2 - gap) / 2#
+            MoveEnvelope model, front, ea, 0.025 + (availableW - ew1) / 2#, 0.045 + (availableH - eh1 - eh2 - gap) / 2# + eh2 + gap
+        End If
+    Next pass
+    ea = FrameAutoSize.MeasureForPackage(host, model, front, frame, "FRONT")
+    eb = FrameAutoSize.MeasureForPackage(host, model, top, frame, "TOP")
+    ValidatePairBoxes ea, eb, width, height
+    Debug.Print "Mounting layoutScale=" & layoutScale & "; side-by-side=" & sideBySide
+End Sub
+
+Private Sub ValidatePairBoxes(ByVal a As Variant, ByVal b As Variant, ByVal width As Double, ByVal height As Double)
+    Call Require(a(0) >= 0.025 And b(0) >= 0.025 And a(1) >= 0.045 And b(1) >= 0.045 And _
+        a(2) <= width - 0.01 And b(2) <= width - 0.01 And a(3) <= height - 0.015 And b(3) <= height - 0.015, _
+        "Монтажные виды или размеры выходят за рабочую область рамки.")
+    Call Require(a(2) + 0.005 <= b(0) Or b(2) + 0.005 <= a(0) Or _
+        a(3) + 0.005 <= b(1) Or b(3) + 0.005 <= a(1), "Пересекаются области монтажных видов и размеров.")
+End Sub
+
+Private Function MountedEnvelope(ByVal view As SldWorks.View) As Variant
+    Dim box As Variant, display As SldWorks.DisplayDimension, annotation As SldWorks.Annotation, p As Variant
+    box = ViewBox(view)
+    Set display = view.GetFirstDisplayDimension5
+    Do While Not display Is Nothing
+        Set annotation = display.GetAnnotation
+        p = annotation.GetPosition
+        Call Require(HasItems(p), "Нет позиции монтажного размера.")
+        ' Conservative text allowances for 3.5 mm text, including rotated captions and arrows.
+        If p(0) - 0.016 < box(0) Then box(0) = p(0) - 0.016
+        If p(0) + 0.016 > box(2) Then box(2) = p(0) + 0.016
+        If p(1) - 0.009 < box(1) Then box(1) = p(1) - 0.009
+        If p(1) + 0.009 > box(3) Then box(3) = p(1) + 0.009
+        Set display = display.GetNext5
+    Loop
+    MountedEnvelope = box
+End Function
+
+Public Sub CheckMountingPair(ByVal model As SldWorks.ModelDoc2, ByVal front As SldWorks.View, ByVal top As SldWorks.View, _
+                             ByVal width As Double, ByVal height As Double)
+    model.EditRebuild3
+    ValidatePairBoxes MountedEnvelope(front), MountedEnvelope(top), width, height
+End Sub

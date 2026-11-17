@@ -72,6 +72,8 @@ Private packageDrawing As SldWorks.ModelDoc2
 Private packageView As SldWorks.View
 Private packageFrame As SldWorks.Component2
 Private packageCreated As Long
+Private packageMeasuring As Boolean
+Private packageEnvelope As Variant
 
 Public Function RunForPackage(ByVal host As SldWorks.SldWorks, ByVal targetDrawing As SldWorks.ModelDoc2, _
                               ByVal targetView As SldWorks.View, ByVal targetFrame As SldWorks.Component2, _
@@ -79,7 +81,7 @@ Public Function RunForPackage(ByVal host As SldWorks.SldWorks, ByVal targetDrawi
     On Error GoTo Failed
     Set packageApp = host: Set packageDrawing = targetDrawing
     Set packageView = targetView: Set packageFrame = targetFrame
-    packageCreated = 0
+    packageCreated = 0: packageMeasuring = False
     RunMacro viewMode, False
     RunForPackage = packageCreated
     ClearPackageContext
@@ -91,9 +93,41 @@ Failed:
     Err.Raise number, origin, message
 End Function
 
+Public Function MeasureForPackage(ByVal host As SldWorks.SldWorks, ByVal targetDrawing As SldWorks.ModelDoc2, _
+                                  ByVal targetView As SldWorks.View, ByVal targetFrame As SldWorks.Component2, _
+                                  ByVal viewMode As String) As Variant
+    On Error GoTo Failed
+    Set packageApp = host: Set packageDrawing = targetDrawing
+    Set packageView = targetView: Set packageFrame = targetFrame
+    packageMeasuring = True: packageEnvelope = Empty
+    RunMacro viewMode, False
+    MeasureForPackage = packageEnvelope
+    ClearPackageContext
+    Exit Function
+Failed:
+    Dim number As Long, origin As String, message As String
+    number = Err.Number: origin = Err.Source: message = Err.Description
+    ClearPackageContext
+    Err.Raise number, origin, message
+End Function
+
+Private Function PlanEnvelope() As Variant
+    Dim box As Variant, i As Long
+    box = vw.GetOutline
+    If HasItems(box) = False Then Fail "Нет габарита для компоновки."
+    For i = 1 To jobCount
+        If jobs(i).AtX - 0.016 < box(0) Then box(0) = jobs(i).AtX - 0.016
+        If jobs(i).AtX + 0.016 > box(2) Then box(2) = jobs(i).AtX + 0.016
+        If jobs(i).AtY - 0.009 < box(1) Then box(1) = jobs(i).AtY - 0.009
+        If jobs(i).AtY + 0.009 > box(3) Then box(3) = jobs(i).AtY + 0.009
+    Next i
+    PlanEnvelope = box
+End Function
+
 Private Sub ClearPackageContext()
     Set packageApp = Nothing: Set packageDrawing = Nothing
     Set packageView = Nothing: Set packageFrame = Nothing
+    packageMeasuring = False: packageEnvelope = Empty
 End Sub
 
 Private Sub main()
@@ -186,7 +220,10 @@ Private Sub RunMacro(ByVal requested As String, ByVal diagnostic As Boolean)
     Else
         BuildPlan mode
     End If
-    If diagnostic Then
+    If packageMeasuring Then
+        If jobCount = 0 Then Fail "Нет размеров для компоновки. Проверите раму и ориентации видов."
+        packageEnvelope = PlanEnvelope()
+    ElseIf diagnostic Then
         ProbePlan
         WriteLog "DIAGNOSTIC COMPLETE; no dimensions created."
     Else
@@ -952,7 +989,7 @@ Private Sub SortAndPlace(ByVal mode As String)
         ElseIf jobs(i).Horizontal Then
             jobs(i).AtX = leftX + jobs(i).Expected * viewScale / 2#
             jobs(i).AtY = bottomY - GAP - nx * STEP_GAP
-            If jobs(i).AtY >= 0.005 Then
+            If jobs(i).AtY >= 0.005 Or packageMeasuring Then
                 nx = nx + 1
             Else
                 jobs(i).AtY = topY + GAP + nt * STEP_GAP
@@ -965,9 +1002,9 @@ Private Sub SortAndPlace(ByVal mode As String)
                 localLeft = members(station).MinX: localRight = members(station).MaxX
                 onLeft = ((localLeft + localRight) / 2# < (leftX + rightX) / 2#)
                 If onLeft Then
-                    If localLeft - GAP - stationLeft(station) * STEP_GAP < 0.005 Then onLeft = False
+                    If localLeft - GAP - stationLeft(station) * STEP_GAP < 0.005 And packageMeasuring = False Then onLeft = False
                 Else
-                    If localRight + GAP + stationRight(station) * STEP_GAP > sheetWidth - 0.005 Then onLeft = True
+                    If localRight + GAP + stationRight(station) * STEP_GAP > sheetWidth - 0.005 And packageMeasuring = False Then onLeft = True
                 End If
                 If onLeft Then
                     jobs(i).AtX = localLeft - GAP - stationLeft(station) * STEP_GAP
@@ -979,9 +1016,9 @@ Private Sub SortAndPlace(ByVal mode As String)
             Else
                 onLeft = ((members(bodyIndex).MinX + members(bodyIndex).MaxX) / 2# < (leftX + rightX) / 2#)
                 If onLeft Then
-                    If leftX - GAP - nl * STEP_GAP < 0.005 Then onLeft = False
+                    If leftX - GAP - nl * STEP_GAP < 0.005 And packageMeasuring = False Then onLeft = False
                 Else
-                    If rightX + GAP + ny * STEP_GAP > sheetWidth - 0.005 Then onLeft = True
+                    If rightX + GAP + ny * STEP_GAP > sheetWidth - 0.005 And packageMeasuring = False Then onLeft = True
                 End If
                 If onLeft Then
                     jobs(i).AtX = leftX - GAP - nl * STEP_GAP
@@ -993,7 +1030,7 @@ Private Sub SortAndPlace(ByVal mode As String)
             End If
             jobs(i).AtY = (edges(jobs(i).Datum).Y1 + edges(jobs(i).Target).Y1) / 2#
         End If
-        If jobs(i).AtX < 0.005 Or jobs(i).AtX > sheetWidth - 0.005 Or jobs(i).AtY < 0.005 Or jobs(i).AtY > sheetHeight - 0.005 Then
+        If packageMeasuring = False And (jobs(i).AtX < 0.005 Or jobs(i).AtX > sheetWidth - 0.005 Or jobs(i).AtY < 0.005 Or jobs(i).AtY > sheetHeight - 0.005) Then
             If mode = "TOP" Then Fail "Для размеров снизу и слева недостаточно места. Освободите место слева и снизу от вида."
             Fail "Для размерных линий недостаточно места на листе. Передвиньте вид дальше от края."
         End If
@@ -1065,6 +1102,7 @@ Private Sub CreateDimensions()
         If dimension Is Nothing Then Fail "SolidWorks не создал размер " & CStr(i)
         created.Add dimension
         expected.Add jobs(i).Expected
+        FramePackageSupport.FormatMountingDimension dimension
         ValidateDimension dimension, jobs(i).Expected
     Next i
     doc.ClearSelection2 True
