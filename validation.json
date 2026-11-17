@@ -1,42 +1,26 @@
 {
-  "version": "FrameAutoSize R1.6",
-  "source_sha256": "c9a9b5a4ec9813bd9e0779036598663bc8e63b9f3d67d5f12e1c6a3ad4d587b1",
+  "version": "FrameAutoSize R1.7",
+  "source_sha256": "becdc9cbf745e8a64512b40d8302e83a93d1f358f69145fe9b2784f282ac225f",
   "grammar": {
     "file": "FrameAutoSize.txt",
-    "sha256": "c9a9b5a4ec9813bd9e0779036598663bc8e63b9f3d67d5f12e1c6a3ad4d587b1",
+    "sha256": "becdc9cbf745e8a64512b40d8302e83a93d1f358f69145fe9b2784f282ac225f",
     "grammar": "grammars-v4 VBA7.1 2766c2eed04f285dc763617c9459650892fcf5b9",
     "errors": [],
     "native_compile": false,
     "native_run": false
   },
-  "top_selection_and_layout_replay": {
-    "scope": "VBA selection expressions replayed on captured bounds; not native execution",
-    "X_mm": [
-      355.0,
-      600.0,
-      640.0,
-      1220.0
+  "entrypoints": {
+    "public_entrypoints": [
+      "FrameAutoSize.main"
     ],
-    "Y_mm": [
-      235.0,
-      350.0,
-      370.0,
-      410.0,
-      790.0
-    ],
-    "captured_bodies": 19,
-    "eligible_tubes_channels": 14,
-    "angle_bodies_excluded": 5,
-    "anchors_fit_420x297_sheet": true,
-    "translation_invariance": true,
-    "all_Y_left_of_view": true,
-    "all_X_below_view": true,
-    "native_vba_compile": false,
-    "native_solidworks_run": false
+    "changes_limited_to_visibility_and_version": true,
+    "baseline": "R1.6 user-confirmed",
+    "native_vba_compile_R17": false,
+    "native_solidworks_run_R17": false
   },
-  "api": "No API changes relative to audited R1.4",
-  "change": "Top X strictly below and Y strictly left; fail before creation when insufficient space; successful production message only выполнено успешно after count/value/attachment validation",
-  "prior_native_evidence": "R1.5 confirmed by user with screenshot; R1.6 not run natively",
-  "native_vba_compile_R16": false,
-  "native_solidworks_run_R16": false
+  "change": "Only main public; Front/Top/Diagnose wrappers Private; same geometry and placement as user-confirmed R1.6",
+  "user_swp_action": "Remove empty template module FrameList31 in VBA editor; not part of distributed BAS",
+  "prior_native_evidence": "R1.6 explicitly confirmed working by user",
+  "native_vba_compile_R17": false,
+  "native_solidworks_run_R17": false
 }

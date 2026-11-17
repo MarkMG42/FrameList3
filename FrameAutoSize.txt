@@ -1,8 +1,8 @@
 Option Explicit
 
-' FrameAutoSize R1.6. Source-only candidate; native SolidWorks test required.
+' FrameAutoSize R1.7. Source-only candidate; native SolidWorks test required.
 ' Standard references: SolidWorks type library and constant type library.
-Private Const VERSION As String = "FrameAutoSize R1.6"
+Private Const VERSION As String = "FrameAutoSize R1.7"
 Private Const FRAME_NAME As String = "рама"
 Private Const TOP_OVERALL_WIDTH As Boolean = True
 Private Const MODEL_TOL As Double = 0.00005
@@ -70,27 +70,27 @@ Public Sub main()
     RunMacro "AUTO", False
 End Sub
 
-Public Sub Front()
+Private Sub Front()
     RunMacro "FRONT", False
 End Sub
 
-Public Sub Top()
+Private Sub Top()
     RunMacro "TOP", False
 End Sub
 
-Public Sub DiagnoseContext()
+Private Sub DiagnoseContext()
     RunMacro "CONTEXT", True
 End Sub
 
-Public Sub Diagnose()
+Private Sub Diagnose()
     RunMacro "AUTO", True
 End Sub
 
-Public Sub DiagnoseFront()
+Private Sub DiagnoseFront()
     RunMacro "FRONT", True
 End Sub
 
-Public Sub DiagnoseTop()
+Private Sub DiagnoseTop()
     RunMacro "TOP", True
 End Sub
 
