@@ -1,70 +1,26 @@
 {
-  "version": "FrameAutoSize R1.3",
-  "source_sha256": "ea629f6527da17b6d39c36f24003816bc43fd74b1c7ca547baedb798d94007da",
+  "version": "FrameAutoSize R1.4",
+  "source_sha256": "e647814d0dd93cc66a0dba3c68df80f6e7db1b433d68e4bb99d6a433c35a163d",
   "grammar": {
     "file": "FrameAutoSize.txt",
-    "sha256": "ea629f6527da17b6d39c36f24003816bc43fd74b1c7ca547baedb798d94007da",
+    "sha256": "e647814d0dd93cc66a0dba3c68df80f6e7db1b433d68e4bb99d6a433c35a163d",
     "grammar": "grammars-v4 VBA7.1 2766c2eed04f285dc763617c9459650892fcf5b9",
     "errors": [],
     "native_compile": false,
     "native_run": false
   },
-  "top_selection_regression": {
-    "scope": "VBA selection expressions replayed on captured bounds; not native execution",
-    "X_mm": [
-      355.0,
-      600.0,
-      640.0,
-      1220.0
-    ],
-    "Y_mm": [
-      235.0,
-      350.0,
-      370.0
-    ],
-    "captured_bodies": 19,
-    "eligible_tubes_channels": 14,
-    "angle_bodies_excluded": 5,
-    "anchors_fit_420x297_sheet": true,
-    "translation_invariance": true,
+  "api": {
+    "scope": "Interop member and signature availability only; not VBA type checking or COM execution",
+    "members_checked": 85,
+    "constants_checked": 11,
+    "missing": [],
+    "assembly_sha256": "d6882de288a8a8c328e264f19b8466ad83793daa58a493665ebf88db6943eb51",
     "native_vba_compile": false,
     "native_solidworks_run": false
   },
-  "projection_regression": "240 support-expression checks passed in R1.2; projection code unchanged in R1.3",
-  "api": "82 members and 11 constants previously audited; no API additions in R1.3",
-  "native_R12_front_diagnostic": {
-    "bodies": 19,
-    "plan_mm": [
-      156.5,
-      182,
-      480,
-      600,
-      901,
-      1265,
-      1410
-    ],
-    "edge_selections": 14,
-    "success": true,
-    "dimensions_created": false
-  },
-  "native_R12_top_diagnostic": {
-    "geometry_success": true,
-    "failure": "Insufficient layout space; angles included in bounds and post ends omitted"
-  },
-  "change": "Top bounds/targets limited to tubes and channels; post ends included; outer attachments omitted; opposite-side layout fallback",
-  "user_confirmed_expected_top_mm": {
-    "X": [
-      355,
-      600,
-      640,
-      1220
-    ],
-    "Y": [
-      235,
-      350,
-      370
-    ]
-  },
-  "native_vba_compile_R13": false,
-  "native_solidworks_run_R13": false
+  "change": "Capture ActiveDoc before log; reuse one host; log PID/documents/selections before context failures; add DiagnoseContext without geometry or document changes",
+  "prior_feedback": "R1.3 failed with ActiveDoc=None at context; original log contains no host information. Cause not established.",
+  "geometry": "R1.3 geometry and layout unchanged; prior top replay and R1.2 front diagnostic remain applicable within their scope",
+  "native_vba_compile_R14": false,
+  "native_solidworks_run_R14": false
 }

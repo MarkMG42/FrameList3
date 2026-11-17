@@ -1,8 +1,8 @@
 Option Explicit
 
-' FrameAutoSize R1.3. Source-only candidate; native SolidWorks test required.
+' FrameAutoSize R1.4. Source-only candidate; native SolidWorks test required.
 ' Standard references: SolidWorks type library and constant type library.
-Private Const VERSION As String = "FrameAutoSize R1.3"
+Private Const VERSION As String = "FrameAutoSize R1.4"
 Private Const FRAME_NAME As String = "рама"
 Private Const TOP_OVERALL_WIDTH As Boolean = True
 Private Const MODEL_TOL As Double = 0.00005
@@ -77,6 +77,10 @@ Public Sub Top()
     RunMacro "TOP", False
 End Sub
 
+Public Sub DiagnoseContext()
+    RunMacro "CONTEXT", True
+End Sub
+
 Public Sub Diagnose()
     RunMacro "AUTO", True
 End Sub
@@ -92,12 +96,23 @@ End Sub
 Private Sub RunMacro(ByVal requested As String, ByVal diagnostic As Boolean)
     On Error GoTo Failed
     ResetState
-    OpenLog
     phase = "context"
     Set sw = Application.SldWorks
     Set doc = sw.ActiveDoc
-    If doc Is Nothing Then Fail "Откройте чертёж."
-    If doc.GetType <> swDocDRAWING Then Fail "Активный документ должен быть чертежом."
+    OpenLog
+    WriteLog "START " & VERSION & "; " & CStr(Now) & "; requested=" & requested
+    LogContext doc
+    If requested = "CONTEXT" Then
+        Dim contextReport As String
+        contextReport = VERSION & vbCrLf & "Диагностика экземпляра SolidWorks завершена." & vbCrLf & _
+            "Документы не изменялись." & vbCrLf & "Журнал: " & logPath
+        CloseLog
+        ReleaseObjects
+        MsgBox contextReport, vbInformation, VERSION
+        Exit Sub
+    End If
+    If doc Is Nothing Then Fail "Этот экземпляр SolidWorks не сообщил активный документ. Выполните DiagnoseContext и пришлите журнал."
+    If doc.GetType <> swDocDRAWING Then Fail "Активный документ не является чертежом: " & doc.GetTitle
     Dim selection As SldWorks.SelectionMgr, selected As Object, mode As String
     Set selection = doc.SelectionManager
     If selection.GetSelectedObjectCount2(-1) <> 1 Then Fail "Выберите один чертёжный вид."
@@ -123,7 +138,6 @@ Private Sub RunMacro(ByVal requested As String, ByVal diagnostic As Boolean)
     If Not detail Is Nothing Then Fail "Выберите обычный вид, не выносной элемент."
     viewScale = vw.ScaleDecimal
     If viewScale <= 0# Then Fail "Некорректный масштаб вида."
-    WriteLog "START " & VERSION & "; " & CStr(Now)
     WriteLog "VIEW=" & vw.GetName2 & "; orientation=" & vw.GetOrientationName & "; scale=" & CStr(viewScale)
     mode = ResolveMode(requested, diagnostic)
     WriteLog "MODE=" & mode & "; diagnostic=" & CStr(diagnostic)
@@ -192,6 +206,52 @@ Failed:
     CloseLog
     ReleaseObjects
     MsgBox report, vbExclamation, VERSION
+End Sub
+
+Private Sub LogContext(ByVal captured As SldWorks.ModelDoc2)
+    On Error GoTo Failed
+    Dim current As SldWorks.ModelDoc2, documents As Variant, candidate As SldWorks.ModelDoc2, i As Long
+    WriteLog "CONTEXT pid=" & CStr(sw.GetProcessID) & "; documentCount=" & CStr(sw.GetDocumentCount)
+    LogContextDocument "active-before-log", captured
+    Set current = sw.ActiveDoc
+    LogContextDocument "active-after-log", current
+    documents = sw.GetDocuments
+    If HasItems(documents) = False Then
+        WriteLog "CONTEXT documents=[]"
+        Exit Sub
+    End If
+    For i = LBound(documents) To UBound(documents)
+        Set candidate = documents(i)
+        LogContextDocument "open[" & CStr(i) & "]", candidate
+    Next i
+    Exit Sub
+Failed:
+    WriteLog "CONTEXT diagnostic error=" & CStr(Err.Number) & "; " & Err.Description
+End Sub
+
+Private Sub LogContextDocument(ByVal label As String, ByVal model As SldWorks.ModelDoc2)
+    On Error GoTo Failed
+    If model Is Nothing Then
+        WriteLog "CONTEXT " & label & "=Nothing"
+        Exit Sub
+    End If
+    Dim selection As SldWorks.SelectionMgr, count As Long, selected As Object, selectedView As SldWorks.View
+    WriteLog "CONTEXT " & label & "; title=" & model.GetTitle & "; type=" & CStr(model.GetType) & "; path=" & model.GetPathName
+    Set selection = model.SelectionManager
+    If selection Is Nothing Then Exit Sub
+    count = selection.GetSelectedObjectCount2(-1)
+    WriteLog "CONTEXT " & label & "; selectionCount=" & CStr(count)
+    If count > 0 Then
+        Set selected = selection.GetSelectedObject6(1, -1)
+        WriteLog "CONTEXT " & label & "; firstSelectedType=" & TypeName(selected)
+        If model.GetType = swDocDRAWING Then
+            Set selectedView = selection.GetSelectedObjectsDrawingView2(1, -1)
+            If Not selectedView Is Nothing Then WriteLog "CONTEXT " & label & "; selectedView=" & selectedView.GetName2
+        End If
+    End If
+    Exit Sub
+Failed:
+    WriteLog "CONTEXT " & label & "; diagnostic error=" & CStr(Err.Number) & "; " & Err.Description
 End Sub
 
 Private Sub ResetState()
@@ -1016,7 +1076,11 @@ End Function
 
 Private Sub OpenLog()
     Dim host As SldWorks.SldWorks, macroPath As String, folder As String, separator As Long
-    Set host = Application.SldWorks
+    If sw Is Nothing Then
+        Set host = Application.SldWorks
+    Else
+        Set host = sw
+    End If
     macroPath = host.GetCurrentMacroPathName
     separator = InStrRev(macroPath, "\")
     If separator > 0 Then
