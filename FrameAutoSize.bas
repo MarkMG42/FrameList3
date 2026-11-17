@@ -1,0 +1,932 @@
+Attribute VB_Name = "FrameAutoSize"
+Option Explicit
+
+' FrameAutoSize R1. Source-only candidate; native SolidWorks test required.
+' Standard references: SolidWorks type library and constant type library.
+Private Const VERSION As String = "FrameAutoSize R1"
+Private Const FRAME_NAME As String = "рама"
+Private Const TOP_OVERALL_WIDTH As Boolean = True
+Private Const MODEL_TOL As Double = 0.00005
+Private Const VALUE_TOL As Double = 0.000001
+Private Const GAP As Double = 0.007
+Private Const STEP_GAP As Double = 0.006
+Private Const AXIS_COS As Double = 0.9999
+Private Const MAX_BODIES As Long = 1000
+Private Const MAX_EDGES As Long = 100000
+Private Type MemberInfo
+    Body As SldWorks.Body2
+    Label As String
+    Metadata As String
+    Profile As Boolean
+    AxisOK As Boolean
+    CutLength As Double
+    AxisReason As String
+    Direction As String
+    MinX As Double
+    MaxX As Double
+    MinY As Double
+    MaxY As Double
+    AxisX As Double
+    AxisY As Double
+    AxisZ As Double
+End Type
+Private Type EdgeInfo
+    Source As SldWorks.Edge
+    Member As Long
+    X1 As Double
+    Y1 As Double
+    X2 As Double
+    Y2 As Double
+End Type
+Private Type DimensionJob
+    Datum As Long
+    Target As Long
+    Horizontal As Boolean
+    Expected As Double
+    AtX As Double
+    AtY As Double
+    Label As String
+End Type
+Private sw As SldWorks.SldWorks
+Private doc As SldWorks.ModelDoc2
+Private vw As SldWorks.View
+Private partModel As SldWorks.ModelDoc2
+Private instance As SldWorks.Component2
+Private utility As SldWorks.MathUtility
+Private componentTransform As SldWorks.MathTransform
+Private viewTransform As SldWorks.MathTransform
+Private members() As MemberInfo, memberCount As Long
+Private edges() As EdgeInfo, edgeCount As Long
+Private jobs() As DimensionJob, jobCount As Long
+Private visited As Collection, created As Collection, expected As Collection
+Private logNumber As Integer, logPath As String, phase As String
+Private viewScale As Double
+Private origin As Variant, basisX As Variant, basisY As Variant, basisZ As Variant
+Private leftX As Double, rightX As Double, bottomY As Double, topY As Double
+Private preferenceKnown As Boolean, oldPreference As Boolean
+Private modeKnown As Boolean, oldProjected As Boolean
+
+Public Sub main()
+    RunMacro "AUTO", False
+End Sub
+
+Public Sub Front()
+    RunMacro "FRONT", False
+End Sub
+
+Public Sub Top()
+    RunMacro "TOP", False
+End Sub
+
+Public Sub Diagnose()
+    RunMacro "AUTO", True
+End Sub
+
+Public Sub DiagnoseFront()
+    RunMacro "FRONT", True
+End Sub
+
+Public Sub DiagnoseTop()
+    RunMacro "TOP", True
+End Sub
+
+Private Sub RunMacro(ByVal requested As String, ByVal diagnostic As Boolean)
+    On Error GoTo Failed
+    ResetState
+    OpenLog
+    phase = "context"
+    Set sw = Application.SldWorks
+    Set doc = sw.ActiveDoc
+    If doc Is Nothing Then Fail "Откройте чертёж."
+    If doc.GetType <> swDocDRAWING Then Fail "Активный документ должен быть чертежом."
+    Dim selection As SldWorks.SelectionMgr, selected As Object, mode As String
+    Set selection = doc.SelectionManager
+    If selection.GetSelectedObjectCount2(-1) <> 1 Then Fail "Выберите один чертёжный вид."
+    Set selected = selection.GetSelectedObject6(1, -1)
+    If selected Is Nothing Then Fail "Не удалось прочитать выбранный вид."
+    If TypeOf selected Is SldWorks.View Then
+        Set vw = selected
+    Else
+        Set vw = selection.GetSelectedObjectsDrawingView2(1, -1)
+    End If
+    If vw Is Nothing Then Fail "Выберите вид или одну кромку на нём."
+    Set utility = sw.GetMathUtility
+    Set viewTransform = vw.ModelToViewTransform
+    If utility Is Nothing Then Fail "Нет MathUtility."
+    If viewTransform Is Nothing Then Fail "Нет преобразования вида."
+    If vw.IsBroken Then Fail "Разорванные виды в R1 не поддерживаются."
+    If vw.IsCropped Then Fail "Обрезанные виды в R1 не поддерживаются."
+    If vw.IsModelBreakState Then Fail "Вид с разрывом модели в R1 не поддерживается."
+    If vw.GetBreakOutSectionCount > 0 Then Fail "Вид с местным разрезом в R1 не поддерживается."
+    Dim section As Object, detail As Object
+    Set section = vw.GetSection: Set detail = vw.GetDetail
+    If Not section Is Nothing Then Fail "Выберите обычный вид, не разрез."
+    If Not detail Is Nothing Then Fail "Выберите обычный вид, не выносной элемент."
+    viewScale = vw.ScaleDecimal
+    If viewScale <= 0# Then Fail "Некорректный масштаб вида."
+    WriteLog "START " & VERSION & "; " & CStr(Now)
+    WriteLog "VIEW=" & vw.GetName2 & "; orientation=" & vw.GetOrientationName & "; scale=" & CStr(viewScale)
+    mode = ResolveMode(requested, diagnostic)
+    WriteLog "MODE=" & mode & "; diagnostic=" & CStr(diagnostic)
+    ResolveFrame
+    origin = Project(Array(0#, 0#, 0#))
+    basisX = Project(Array(1#, 0#, 0#))
+    basisY = Project(Array(0#, 1#, 0#))
+    basisZ = Project(Array(0#, 0#, 1#))
+    WriteLog "BASIS origin=" & PointText(origin) & "; X=" & PointText(basisX) & "; Y=" & PointText(basisY) & "; Z=" & PointText(basisZ)
+    Dim filtered As Variant
+    filtered = vw.Bodies
+    If HasItems(filtered) Then Fail "Вид ограничен отдельными телами. Выберите полный вид сборки/рамы."
+    phase = "bodies"
+    ReadBodies
+    phase = "cut-list"
+    WalkFeatures partModel.FirstFeature
+    phase = "geometry"
+    ReadGeometry
+    If diagnostic = False Then RequireAxes
+    phase = "plan"
+    If mode = "UNKNOWN" Then
+        WriteLog "No automatic mode for this orientation; use Front or Top for dimension creation."
+    Else
+        BuildPlan mode
+    End If
+    If diagnostic Then
+        ProbePlan
+        WriteLog "DIAGNOSTIC COMPLETE; no dimensions created."
+    Else
+        If jobCount = 0 Then Fail "Нет размеров для создания. Запустите Diagnose и пришлите журнал."
+        phase = "create"
+        CreateDimensions
+        phase = "rebuild"
+        doc.EditRebuild3
+        ValidateAll
+        If RestorePreference() = False Then Fail "Не восстановлена настройка ввода размера."
+        doc.GraphicsRedraw2
+        WriteLog "SUCCESS dimensions=" & CStr(created.Count)
+    End If
+    Dim report As String
+    report = VERSION & vbCrLf & "Рама: " & partModel.GetTitle & vbCrLf & _
+        "Тел: " & memberCount & "; запланировано размеров: " & jobCount
+    If diagnostic Then
+        report = report & vbCrLf & "Диагностика завершена. Чертёж не изменён."
+    Else
+        report = report & vbCrLf & "Создано: " & created.Count & ". Повторный запуск добавляет размеры ещё раз."
+    End If
+    report = report & vbCrLf & "Журнал: " & logPath
+    CloseLog
+    ReleaseObjects
+    MsgBox report, vbInformation, VERSION
+    Exit Sub
+Failed:
+    Dim message As String, number As Long, rollbackOK As Boolean, restoreOK As Boolean
+    number = Err.Number: message = Err.Description
+    WriteLog "FAIL phase=" & phase & "; error=" & CStr(number) & "; " & message
+    rollbackOK = Rollback()
+    restoreOK = RestorePreference()
+    If RestoreMode() = False Then restoreOK = False
+    WriteLog "ROLLBACK=" & CStr(rollbackOK) & "; settings restored=" & CStr(restoreOK)
+    report = VERSION & vbCrLf & "Этап: " & phase & vbCrLf & message & vbCrLf & "Журнал: " & logPath
+    If rollbackOK = False Then report = report & vbCrLf & "Часть новых размеров не удалена; проверьте чертёж."
+    If restoreOK = False Then report = report & vbCrLf & "Проверьте настройки размеров вида и ввода значения."
+    CloseLog
+    ReleaseObjects
+    MsgBox report, vbExclamation, VERSION
+End Sub
+
+Private Sub ResetState()
+    CloseLog
+    ReleaseObjects
+    Erase members: Erase edges: Erase jobs
+    memberCount = 0: edgeCount = 0: jobCount = 0
+    Set visited = New Collection
+    Set created = New Collection
+    Set expected = New Collection
+    preferenceKnown = False: modeKnown = False
+    logPath = "": phase = "init"
+End Sub
+
+Private Sub ReleaseObjects()
+    Set instance = Nothing: Set partModel = Nothing: Set vw = Nothing
+    Set componentTransform = Nothing: Set viewTransform = Nothing
+    Set utility = Nothing: Set doc = Nothing: Set sw = Nothing
+    Set visited = Nothing: Set created = Nothing: Set expected = Nothing
+    Erase members: Erase edges: Erase jobs
+End Sub
+
+Private Function ResolveMode(ByVal requested As String, ByVal diagnostic As Boolean) As String
+    If requested <> "AUTO" Then ResolveMode = requested: Exit Function
+    Dim name As String, answer As VbMsgBoxResult
+    name = LCase$(vw.GetOrientationName)
+    If InStr(name, "front") > 0 Or InStr(name, "спереди") > 0 Then
+        ResolveMode = "FRONT": Exit Function
+    End If
+    If InStr(name, "top") > 0 Or InStr(name, "сверху") > 0 Then
+        ResolveMode = "TOP": Exit Function
+    End If
+    If diagnostic Then ResolveMode = "UNKNOWN": Exit Function
+    answer = MsgBox("SolidWorks не сообщает стандартное имя ориентации." & vbCrLf & _
+        "Да — вид спереди. Нет — вид сверху. Отмена — выход.", vbYesNoCancel + vbQuestion, VERSION)
+    If answer = vbCancel Then Fail "Запуск отменён."
+    If answer = vbYes Then ResolveMode = "FRONT" Else ResolveMode = "TOP"
+End Function
+
+Private Sub ResolveFrame()
+    Dim reference As SldWorks.ModelDoc2
+    Set reference = vw.ReferencedDocument
+    If reference Is Nothing Then Fail "Загрузите модель вида; отсоединённый чертёж не поддерживается."
+    CheckConfiguration reference, vw.ReferencedConfiguration
+    If reference.GetType = swDocPART Then
+        Set partModel = reference
+    ElseIf reference.GetType = swDocASSEMBLY Then
+        Dim values As Variant, dc As SldWorks.DrawingComponent, candidate As SldWorks.Component2
+        Dim found As SldWorks.Component2, i As Long, matches As Long, path As String
+        values = vw.GetVisibleDrawingComponents
+        If HasItems(values) = False Then Fail "Нет компонентов вида."
+        For i = LBound(values) To UBound(values)
+            Set dc = values(i)
+            Set candidate = dc.Component
+            If Not candidate Is Nothing Then
+                path = candidate.GetPathName
+                WriteLog "COMPONENT name=" & candidate.Name2 & "; path=" & path & "; config=" & candidate.ReferencedConfiguration
+                If IsFrameName(path, candidate.Name2) Then
+                    matches = matches + 1
+                    Set found = candidate
+                End If
+            End If
+        Next i
+        If matches <> 1 Then Fail "Нужно найти одну деталь рамы по имени файла. Найдено: " & matches & _
+            ". Настройка FRAME_NAME=" & FRAME_NAME & ". Полный список — в журнале."
+        Set instance = ResolveInstance(reference, found)
+        Set partModel = instance.GetModelDoc2
+        If partModel Is Nothing Then Fail "Полностью загрузите деталь рамы в сборке (Resolve)."
+        CheckConfiguration partModel, instance.ReferencedConfiguration
+        Set componentTransform = instance.Transform2
+        If componentTransform Is Nothing Then Fail "Нет преобразования экземпляра рамы."
+        WriteLog "INSTANCE=" & instance.Name2
+    Else
+        Fail "Поддерживаются виды детали и сборки."
+    End If
+    If partModel.GetType <> swDocPART Then Fail "Основная рама должна быть деталью SLDPRT."
+    WriteLog "FRAME=" & partModel.GetPathName & "; title=" & partModel.GetTitle
+End Sub
+
+Private Function IsFrameName(ByVal path As String, ByVal name As String) As Boolean
+    Dim stem As String, position As Long
+    stem = Replace(path, "/", "\")
+    position = InStrRev(stem, "\")
+    If position > 0 Then stem = Mid$(stem, position + 1)
+    If Len(stem) = 0 Then stem = name
+    position = InStrRev(stem, ".")
+    If position > 0 Then
+        If LCase$(Mid$(stem, position)) <> ".sldprt" Then Exit Function
+        stem = Left$(stem, position - 1)
+    End If
+    IsFrameName = (InStr(1, stem, FRAME_NAME, vbTextCompare) > 0 Or InStr(1, stem, "frame", vbTextCompare) > 0)
+End Function
+
+Private Function ResolveInstance(ByVal model As SldWorks.ModelDoc2, ByVal wanted As SldWorks.Component2) As SldWorks.Component2
+    Dim assembly As SldWorks.AssemblyDoc, values As Variant, candidate As SldWorks.Component2
+    Dim root As SldWorks.DrawingComponent, rootComp As SldWorks.Component2
+    Dim rootName As String, aliasName As String, i As Long, count As Long, sameName As Boolean
+    Set root = vw.RootDrawingComponent
+    If Not root Is Nothing Then
+        rootName = root.Name
+        Set rootComp = root.Component
+        If Not rootComp Is Nothing Then aliasName = rootComp.Name2
+    End If
+    Set assembly = model
+    values = assembly.GetComponents(False)
+    If HasItems(values) = False Then Fail "Не удалось прочитать дерево сборки."
+    For i = LBound(values) To UBound(values)
+        Set candidate = values(i)
+        sameName = (StrComp(wanted.Name2, candidate.Name2, vbTextCompare) = 0)
+        If Len(rootName) > 0 Then sameName = sameName Or (StrComp(wanted.Name2, rootName & "/" & candidate.Name2, vbTextCompare) = 0)
+        If Len(aliasName) > 0 Then sameName = sameName Or (StrComp(wanted.Name2, aliasName & "/" & candidate.Name2, vbTextCompare) = 0)
+        If sameName Then
+            If StrComp(wanted.GetPathName, candidate.GetPathName, vbTextCompare) = 0 Then
+                If StrComp(wanted.ReferencedConfiguration, candidate.ReferencedConfiguration, vbTextCompare) = 0 Then
+                    count = count + 1
+                    Set ResolveInstance = candidate
+                End If
+            End If
+        End If
+    Next i
+    If count <> 1 Then Fail "Неоднозначный экземпляр рамы в сборке: " & count
+End Function
+
+Private Sub CheckConfiguration(ByVal model As SldWorks.ModelDoc2, ByVal requested As String)
+    Dim configuration As SldWorks.Configuration
+    Set configuration = model.ConfigurationManager.ActiveConfiguration
+    If configuration Is Nothing Then Fail "Не прочитана конфигурация " & model.GetTitle
+    WriteLog "CONFIG " & model.GetTitle & "; active=" & configuration.Name & "; requested=" & requested
+    If Len(requested) > 0 Then
+        If StrComp(configuration.Name, requested, vbTextCompare) <> 0 Then _
+            Fail "Конфигурация открытой модели не совпадает с видом: " & model.GetTitle & ". Активируйте " & requested
+    End If
+End Sub
+
+Private Sub ReadBodies()
+    Dim part As SldWorks.PartDoc, values As Variant, i As Long
+    Set part = partModel
+    values = part.GetBodies2(swSolidBody, True)
+    If HasItems(values) = False Then Fail "В детали рамы нет доступных твёрдых тел."
+    memberCount = UBound(values) - LBound(values) + 1
+    If memberCount > MAX_BODIES Then Fail "Слишком много тел для этой версии."
+    ReDim members(1 To memberCount)
+    For i = LBound(values) To UBound(values)
+        Set members(i - LBound(values) + 1).Body = values(i)
+        members(i - LBound(values) + 1).Label = values(i).Name
+    Next i
+End Sub
+
+Private Sub WalkFeatures(ByVal first As SldWorks.Feature, Optional ByVal subLevel As Boolean = False)
+    Dim feature As SldWorks.Feature, old As SldWorks.Feature, seen As Boolean
+    Set feature = first
+    Do While Not feature Is Nothing
+        seen = False
+        For Each old In visited
+            If sw.IsSame(old, feature) = swObjectSame Then seen = True: Exit For
+        Next old
+        If seen = False Then
+            visited.Add feature
+            If feature.GetTypeName2 = "CutListFolder" Then ReadFolder feature
+            WalkFeatures feature.GetFirstSubFeature, True
+        End If
+        If subLevel Then
+            Set feature = feature.GetNextSubFeature
+        Else
+            Set feature = feature.GetNextFeature
+        End If
+    Loop
+End Sub
+
+Private Sub ReadFolder(ByVal feature As SldWorks.Feature)
+    Dim folder As SldWorks.BodyFolder, manager As SldWorks.CustomPropertyManager
+    Dim values As Variant, names As Variant, raw As String, resolved As String, text As String
+    Dim wasResolved As Boolean, linked As Boolean, status As Long, i As Long, j As Long, k As Long
+    Dim body As SldWorks.Body2, cutLength As Double, token As String, candidateLength As Double
+    Set folder = feature.GetSpecificFeature2
+    If folder Is Nothing Then Exit Sub
+    values = folder.GetBodies
+    If HasItems(values) = False Then Exit Sub
+    Set manager = feature.CustomPropertyManager
+    names = manager.GetNames
+    text = feature.Name
+    If HasItems(names) Then
+        For i = LBound(names) To UBound(names)
+            raw = "": resolved = ""
+            status = manager.Get6(CStr(names(i)), True, raw, resolved, wasResolved, linked)
+            WriteLog "PROPERTY folder=" & feature.Name & "; name=" & CStr(names(i)) & "; raw=" & raw & "; resolved=" & resolved
+            text = text & " | " & CStr(names(i)) & "=" & resolved
+            token = PropertyToken(raw)
+            If token = "LENGTH" Or token = "SW-LENGTH" Then
+                If wasResolved <> False And linked <> False Then
+                    candidateLength = PlainNumber(resolved) * LengthFactor()
+                    If candidateLength > 0# Then
+                        If cutLength > 0# And Abs(cutLength - candidateLength) > VALUE_TOL Then Fail "Противоречивые свойства LENGTH: " & feature.Name
+                        cutLength = candidateLength
+                    End If
+                End If
+            End If
+        Next i
+    End If
+    For j = LBound(values) To UBound(values)
+        Set body = values(j)
+        For k = 1 To memberCount
+            If sw.IsSame(body, members(k).Body) = swObjectSame Then
+                members(k).Metadata = members(k).Metadata & " | " & text
+                If members(k).CutLength > 0# And cutLength > 0# Then
+                    If Abs(members(k).CutLength - cutLength) > VALUE_TOL Then Fail "Тело в разных группах LENGTH: " & members(k).Label
+                End If
+                If cutLength > 0# Then members(k).CutLength = cutLength
+                Exit For
+            End If
+        Next k
+    Next j
+End Sub
+
+Private Function ProfileEvidence(ByVal index As Long) As Boolean
+    Dim text As String, keywords As Variant, word As Variant
+    text = LCase$(members(index).Metadata & " " & members(index).Label)
+    ' Sheet/cut plates must not be treated as profiles even if long.
+    keywords = Array("пластин", "лист ", "sheet", "plate")
+    For Each word In keywords
+        If InStr(text, CStr(word)) > 0 Then Exit Function
+    Next word
+    keywords = Array("труб", "швеллер", "уголок", "уголк", "tube", "pipe", "channel", "angle", "rhs", "shs", "upn", "u channel")
+    For Each word In keywords
+        If InStr(text, CStr(word)) > 0 Then ProfileEvidence = True: Exit Function
+    Next word
+    Dim values As Variant, feature As SldWorks.Feature, i As Long, kind As String
+    values = members(index).Body.GetFeatures
+    If HasItems(values) Then
+        For i = LBound(values) To UBound(values)
+            Set feature = values(i)
+            kind = feature.GetTypeName2
+            WriteLog "BODYFEATURE " & members(index).Label & "; " & kind & "; " & feature.Name
+            If kind = "WeldMemberFeat" Then ProfileEvidence = True
+        Next i
+    End If
+End Function
+
+Private Sub ReadGeometry()
+    Dim i As Long, j As Long, values As Variant, edge As SldWorks.Edge
+    Dim a As Variant, b As Variant, p As Variant, q As Variant, length As Double
+    Dim ax As Double, ay As Double, az As Double, dx As Double, dy As Double, dz As Double
+    Dim projected As Variant, validProfiles As Long, matches As Long, ambiguous As Boolean
+    For i = 1 To memberCount
+        members(i).Profile = ProfileEvidence(i)
+        members(i).MinX = Support(i, 0, -1#): members(i).MaxX = Support(i, 0, 1#)
+        members(i).MinY = Support(i, 1, -1#): members(i).MaxY = Support(i, 1, 1#)
+        matches = 0: ambiguous = False
+        values = members(i).Body.GetEdges
+        If HasItems(values) Then
+            For j = LBound(values) To UBound(values)
+                Set edge = values(j)
+                If Straight(edge, a, b, length) Then
+                    p = Project(a): q = Project(b)
+                    AddEdge edge, i, p, q
+                    If members(i).CutLength > 0# Then
+                        If Abs(length - members(i).CutLength) <= VALUE_TOL Then
+                            dx = (b(0) - a(0)) / length
+                            dy = (b(1) - a(1)) / length
+                            dz = (b(2) - a(2)) / length
+                            If matches = 0 Then
+                                ax = dx: ay = dy: az = dz
+                            Else
+                                If Abs(ax * dx + ay * dy + az * dz) < 0.999999 Then ambiguous = True
+                            End If
+                            matches = matches + 1
+                        End If
+                    End If
+                End If
+            Next j
+        End If
+        members(i).Direction = "UNKNOWN"
+        members(i).AxisReason = "No resolved linked LENGTH or no matching straight edges"
+        If matches > 0 And ambiguous = False Then
+            projected = Project(Array(ax, ay, az))
+            members(i).AxisX = (projected(0) - origin(0)) / viewScale
+            members(i).AxisY = (projected(1) - origin(1)) / viewScale
+            members(i).AxisZ = (projected(2) - origin(2)) / viewScale
+            members(i).Direction = AxisDirection(members(i).AxisX, members(i).AxisY, members(i).AxisZ)
+            members(i).AxisOK = (members(i).Direction <> "OBLIQUE")
+            members(i).AxisReason = "Validated parallel full-LENGTH edges: " & CStr(matches)
+            If members(i).AxisOK = False Then members(i).AxisReason = "Oblique profile in this view"
+        End If
+        If ambiguous Then members(i).AxisReason = "Full-LENGTH edges have different directions; ambiguous axis"
+        WriteLog "BODY " & CStr(i) & "; name=" & members(i).Label & "; profile=" & CStr(members(i).Profile) & _
+            "; LENGTH mm=" & CStr(members(i).CutLength * 1000#) & "; axisOK=" & CStr(members(i).AxisOK) & "; direction=" & members(i).Direction & _
+            "; reason=" & members(i).AxisReason & "; axis=" & CStr(members(i).AxisX) & "," & CStr(members(i).AxisY) & "," & CStr(members(i).AxisZ) & _
+            "; sheet bounds mm=" & CStr(members(i).MinX * 1000#) & "," & CStr(members(i).MinY * 1000#) & _
+            "," & CStr(members(i).MaxX * 1000#) & "," & CStr(members(i).MaxY * 1000#) & "; metadata=" & members(i).Metadata
+        If members(i).Profile And members(i).AxisOK Then validProfiles = validProfiles + 1
+    Next i
+    WriteLog "GEOMETRY members=" & memberCount & "; usable profiles=" & validProfiles & "; straight edges=" & edgeCount
+End Sub
+
+Private Sub RequireAxes()
+    Dim i As Long
+    For i = 1 To memberCount
+        If members(i).Profile And members(i).AxisOK = False Then _
+            Fail "Не определена ортогональная ось профиля: " & members(i).Label & ". " & members(i).AxisReason & ". Пришлите журнал DiagnoseFront/DiagnoseTop."
+    Next i
+End Sub
+
+Private Function PropertyToken(ByVal raw As String) As String
+    Dim text As String, position As Long
+    text = Trim$(raw)
+    If Left$(text, 1) = Chr$(34) Then text = Mid$(text, 2)
+    position = InStr(text, "@@@")
+    If position > 1 Then PropertyToken = UCase$(Left$(text, position - 1))
+End Function
+
+Private Function PlainNumber(ByVal text As String) As Double
+    Dim value As String, i As Long, digit As String, separators As Long, digits As Long
+    value = Trim$(text)
+    For i = 1 To Len(value)
+        digit = Mid$(value, i, 1)
+        If digit >= "0" And digit <= "9" Then
+            digits = digits + 1
+        ElseIf digit = "." Or digit = "," Then
+            separators = separators + 1
+        Else
+            Exit Function
+        End If
+    Next i
+    If digits = 0 Or separators > 1 Then Exit Function
+    PlainNumber = Val(Replace(value, ",", "."))
+End Function
+
+Private Function LengthFactor() As Double
+    Dim units As Variant
+    units = partModel.GetUnits
+    If HasItems(units) = False Then Fail "Не прочитаны единицы детали."
+    Select Case CLng(units(LBound(units)))
+        Case swMM: LengthFactor = 0.001
+        Case swCM: LengthFactor = 0.01
+        Case swMETER: LengthFactor = 1#
+        Case swINCHES: LengthFactor = 0.0254
+        Case swFEET: LengthFactor = 0.3048
+        Case Else: Fail "Неподдерживаемые единицы LENGTH. Используйте десятичные единицы длины."
+    End Select
+End Function
+
+Private Function AxisDirection(ByVal x As Double, ByVal y As Double, ByVal z As Double) As String
+    Dim norm As Double
+    norm = Sqr(x * x + y * y + z * z)
+    AxisDirection = "OBLIQUE"
+    If norm <= 0# Then Exit Function
+    If Abs(x) / norm >= AXIS_COS Then AxisDirection = "X"
+    If Abs(y) / norm >= AXIS_COS Then AxisDirection = "Y"
+    If Abs(z) / norm >= AXIS_COS Then AxisDirection = "Z"
+End Function
+
+Private Function Support(ByVal index As Long, ByVal coordinate As Long, ByVal sign As Double) As Double
+    Dim dx As Double, dy As Double, dz As Double, x As Double, y As Double, z As Double, p As Variant
+    dx = sign * (basisX(coordinate) - origin(coordinate))
+    dy = sign * (basisY(coordinate) - origin(coordinate))
+    dz = sign * (basisZ(coordinate) - origin(coordinate))
+    If members(index).Body.GetExtremePoint(dx, dy, dz, x, y, z) = False Then Fail "Не найден экстремум " & members(index).Label
+    p = Project(Array(x, y, z))
+    Support = p(coordinate)
+End Function
+
+Private Function Project(ByVal source As Variant) As Variant
+    Dim point As SldWorks.MathPoint
+    Set point = utility.CreatePoint(source)
+    If Not componentTransform Is Nothing Then Set point = point.MultiplyTransform(componentTransform)
+    Set point = point.MultiplyTransform(viewTransform)
+    Project = point.ArrayData
+End Function
+
+Private Function Straight(ByVal edge As SldWorks.Edge, ByRef a As Variant, ByRef b As Variant, ByRef length As Double) As Boolean
+    Dim curve As SldWorks.Curve, va As SldWorks.Vertex, vb As SldWorks.Vertex
+    Set curve = edge.GetCurve
+    If curve Is Nothing Then Exit Function
+    If curve.IsLine = False Then Exit Function
+    Set va = edge.GetStartVertex: Set vb = edge.GetEndVertex
+    If va Is Nothing Then Exit Function
+    If vb Is Nothing Then Exit Function
+    a = va.GetPoint: b = vb.GetPoint
+    length = Sqr((a(0) - b(0)) ^ 2 + (a(1) - b(1)) ^ 2 + (a(2) - b(2)) ^ 2)
+    Straight = (length > VALUE_TOL)
+End Function
+
+Private Sub AddEdge(ByVal source As SldWorks.Edge, ByVal index As Long, ByVal p As Variant, ByVal q As Variant)
+    If edgeCount >= MAX_EDGES Then Fail "Превышен лимит рёбер."
+    edgeCount = edgeCount + 1
+    If edgeCount = 1 Then ReDim edges(1 To 256)
+    If edgeCount > UBound(edges) Then ReDim Preserve edges(1 To UBound(edges) + 256)
+    Set edges(edgeCount).Source = source
+    edges(edgeCount).Member = index
+    edges(edgeCount).X1 = p(0): edges(edgeCount).Y1 = p(1)
+    edges(edgeCount).X2 = q(0): edges(edgeCount).Y2 = q(1)
+End Sub
+
+Private Sub BuildPlan(ByVal mode As String)
+    Dim i As Long, count As Long, baseBody As Long, datum As Long, target As Long
+    Dim baseY As Double, tol As Double, value As Double, span As Double, bestSpan As Double, supportBottom As Double
+    tol = MODEL_TOL * viewScale
+    leftX = 1E+100: bottomY = 1E+100: rightX = -1E+100: topY = -1E+100
+    For i = 1 To memberCount
+        If members(i).Profile And members(i).AxisOK Then
+            count = count + 1
+            If members(i).MinX < leftX Then leftX = members(i).MinX
+            If members(i).MaxX > rightX Then rightX = members(i).MaxX
+            If members(i).MinY < bottomY Then bottomY = members(i).MinY
+            If members(i).MaxY > topY Then topY = members(i).MaxY
+        End If
+    Next i
+    If count = 0 Then Fail "Не распознаны профили рамы. Пришлите журнал Diagnose."
+    If mode = "FRONT" Then
+        supportBottom = 1E+100
+        For i = 1 To memberCount
+            If members(i).Profile And members(i).AxisOK And members(i).Direction = "X" Then
+                If members(i).MinY < supportBottom Then supportBottom = members(i).MinY
+            End If
+        Next i
+        For i = 1 To memberCount
+            If members(i).Profile And members(i).AxisOK And members(i).Direction = "X" Then
+                If Abs(members(i).MinY - supportBottom) <= tol Then
+                    If baseBody > 0 Then
+                        If Abs(members(i).MaxY - baseY) > tol Then Fail "Нижние опорные профили имеют разные верхние уровни. База неоднозначна."
+                    End If
+                    span = members(i).MaxX - members(i).MinX
+                    If span > bestSpan Then
+                        baseBody = i: baseY = members(i).MaxY: bestSpan = span
+                    End If
+                End If
+            End If
+        Next i
+        If baseBody = 0 Then Fail "Не найден нижний горизонтальный опорный профиль. Нужен журнал Diagnose."
+        datum = Boundary(baseBody, False, baseY)
+        If datum = 0 Then Fail "У базового профиля нет прямой верхней кромки в проекции."
+        WriteLog "DATUM FRONT body=" & members(baseBody).Label & "; Y sheet mm=" & CStr(baseY * 1000#)
+        For i = 1 To memberCount
+            If members(i).Profile And members(i).AxisOK Then
+                If members(i).Direction = "X" Or members(i).Direction = "Z" Then
+                    value = members(i).MaxY - baseY
+                    If value > tol Then
+                        target = Boundary(i, False, members(i).MaxY)
+                        If target = 0 Then Fail "Нет верхней кромки целевого профиля: " & members(i).Label
+                        AddJob datum, target, False, value / viewScale, members(i).Label
+                    End If
+                End If
+            End If
+        Next i
+    ElseIf mode = "TOP" Then
+        WriteLog "DATUM TOP left/bottom sheet mm=" & CStr(leftX * 1000#) & "," & CStr(bottomY * 1000#)
+        For i = 1 To memberCount
+            If members(i).Profile And members(i).AxisOK Then
+                If members(i).Direction = "Y" Then
+                    value = members(i).MinX - leftX
+                    If value > tol Then
+                        datum = GlobalBoundary(True, leftX)
+                        target = Boundary(i, True, members(i).MinX)
+                        If datum = 0 Or target = 0 Then Fail "Нет прямой кромки для размера X: " & members(i).Label
+                        AddJob datum, target, True, value / viewScale, members(i).Label
+                    End If
+                ElseIf members(i).Direction = "X" Then
+                    value = members(i).MinY - bottomY
+                    If value > tol Then
+                        datum = GlobalBoundary(False, bottomY)
+                        target = Boundary(i, False, members(i).MinY)
+                        If datum = 0 Or target = 0 Then Fail "Нет прямой кромки для размера Y: " & members(i).Label
+                        AddJob datum, target, False, value / viewScale, members(i).Label
+                    End If
+                End If
+            End If
+        Next i
+        If TOP_OVERALL_WIDTH Then
+            datum = GlobalBoundary(True, leftX)
+            target = GlobalBoundary(True, rightX)
+            If datum = 0 Or target = 0 Then Fail "Нет кромок для общей ширины рамы сверху."
+            AddJob datum, target, True, (rightX - leftX) / viewScale, "Общая ширина рамы"
+        End If
+    End If
+    SortAndPlace mode
+End Sub
+
+Private Function Boundary(ByVal member As Long, ByVal vertical As Boolean, ByVal coordinate As Double) As Long
+    Dim i As Long, deviation As Double, offset As Double, length As Double, best As Double, tolerance As Double
+    tolerance = MODEL_TOL * viewScale
+    For i = 1 To edgeCount
+        If edges(i).Member = member Then
+            If vertical Then
+                deviation = Abs(edges(i).X1 - edges(i).X2)
+                offset = Abs((edges(i).X1 + edges(i).X2) / 2# - coordinate)
+                length = Abs(edges(i).Y1 - edges(i).Y2)
+            Else
+                deviation = Abs(edges(i).Y1 - edges(i).Y2)
+                offset = Abs((edges(i).Y1 + edges(i).Y2) / 2# - coordinate)
+                length = Abs(edges(i).X1 - edges(i).X2)
+            End If
+            If deviation <= tolerance And offset <= tolerance And length > tolerance Then
+                If length > best Then best = length: Boundary = i
+            End If
+        End If
+    Next i
+End Function
+
+Private Function GlobalBoundary(ByVal vertical As Boolean, ByVal coordinate As Double) As Long
+    Dim i As Long, candidate As Long, best As Double, length As Double
+    For i = 1 To memberCount
+        If members(i).Profile And members(i).AxisOK Then
+            candidate = Boundary(i, vertical, coordinate)
+            If candidate > 0 Then
+                If vertical Then length = Abs(edges(candidate).Y2 - edges(candidate).Y1) Else length = Abs(edges(candidate).X2 - edges(candidate).X1)
+                If length > best Then best = length: GlobalBoundary = candidate
+            End If
+        End If
+    Next i
+End Function
+
+Private Sub AddJob(ByVal datum As Long, ByVal target As Long, ByVal horizontal As Boolean, ByVal value As Double, ByVal label As String)
+    Dim i As Long
+    For i = 1 To jobCount
+        If jobs(i).Horizontal = horizontal Then
+            If Abs(jobs(i).Expected - value) <= MODEL_TOL Then
+                WriteLog "MERGED same coordinate: " & label & "; mm=" & CStr(value * 1000#)
+                Exit Sub
+            End If
+        End If
+    Next i
+    jobCount = jobCount + 1
+    If jobCount = 1 Then ReDim jobs(1 To 64)
+    If jobCount > UBound(jobs) Then ReDim Preserve jobs(1 To UBound(jobs) + 64)
+    jobs(jobCount).Datum = datum: jobs(jobCount).Target = target
+    jobs(jobCount).Horizontal = horizontal: jobs(jobCount).Expected = value
+    jobs(jobCount).Label = label
+End Sub
+
+Private Sub SortAndPlace(ByVal mode As String)
+    Dim i As Long, j As Long, temp As DimensionJob, nx As Long, ny As Long, nl As Long
+    Dim bodyIndex As Long, onLeft As Boolean, drawing As SldWorks.DrawingDoc, sheet As SldWorks.Sheet
+    Dim sheetWidth As Double, sheetHeight As Double
+    Set drawing = doc: Set sheet = drawing.GetCurrentSheet
+    sheet.GetSize sheetWidth, sheetHeight
+    For i = 2 To jobCount
+        j = i
+        Do While j > 1
+            If jobs(j).Expected >= jobs(j - 1).Expected Then Exit Do
+            temp = jobs(j): jobs(j) = jobs(j - 1): jobs(j - 1) = temp
+            j = j - 1
+        Loop
+    Next i
+    For i = 1 To jobCount
+        If jobs(i).Horizontal Then
+            jobs(i).AtX = leftX + jobs(i).Expected * viewScale / 2#
+            jobs(i).AtY = bottomY - GAP - nx * STEP_GAP
+            nx = nx + 1
+        Else
+            bodyIndex = edges(jobs(i).Target).Member
+            onLeft = False
+            If mode = "FRONT" Then onLeft = ((members(bodyIndex).MinX + members(bodyIndex).MaxX) / 2# < (leftX + rightX) / 2#)
+            If onLeft Then
+                jobs(i).AtX = leftX - GAP - nl * STEP_GAP
+                nl = nl + 1
+            Else
+                jobs(i).AtX = rightX + GAP + ny * STEP_GAP
+                ny = ny + 1
+            End If
+            jobs(i).AtY = (edges(jobs(i).Datum).Y1 + edges(jobs(i).Target).Y1) / 2#
+        End If
+        If jobs(i).AtX < 0.005 Or jobs(i).AtX > sheetWidth - 0.005 Or jobs(i).AtY < 0.005 Or jobs(i).AtY > sheetHeight - 0.005 Then _
+            Fail "Для размерных линий недостаточно места на листе. Передвиньте вид дальше от края."
+        WriteLog "PLAN " & CStr(i) & "; horizontal=" & CStr(jobs(i).Horizontal) & "; mm=" & CStr(jobs(i).Expected * 1000#) & _
+            "; target=" & jobs(i).Label & "; datumEdge=" & jobs(i).Datum & "; targetEdge=" & jobs(i).Target
+    Next i
+End Sub
+
+Private Function MappedEdge(ByVal index As Long) As SldWorks.Edge
+    If instance Is Nothing Then
+        Set MappedEdge = edges(index).Source
+    Else
+        Set MappedEdge = instance.GetCorrespondingEntity(edges(index).Source)
+    End If
+    If MappedEdge Is Nothing Then Fail "Не сопоставлено ребро с экземпляром рамы: " & index
+End Function
+
+Private Sub ProbePlan()
+    Dim i As Long
+    For i = 1 To jobCount
+        ProbeEdge jobs(i).Datum
+        ProbeEdge jobs(i).Target
+    Next i
+End Sub
+
+Private Sub ProbeEdge(ByVal index As Long)
+    On Error GoTo Failed
+    Dim edge As SldWorks.Edge
+    Set edge = MappedEdge(index)
+    doc.ClearSelection2 True
+    SelectMapped index, False
+    WriteLog "MAP/SELECT edge=" & CStr(index) & "; OK; body=" & members(edges(index).Member).Label
+    doc.ClearSelection2 True
+    Exit Sub
+Failed:
+    WriteLog "MAP/SELECT edge=" & CStr(index) & "; FAILED " & CStr(Err.Number) & "; " & Err.Description
+    On Error Resume Next
+    doc.ClearSelection2 True
+End Sub
+
+Private Sub SelectMapped(ByVal index As Long, ByVal append As Boolean)
+    Dim edge As SldWorks.Edge, selection As SldWorks.SelectionMgr, count As Long
+    Set edge = MappedEdge(index)
+    If vw.SelectEntity(edge, append) = False Then Fail "Не выбрано ребро в виде: " & index
+    Set selection = doc.SelectionManager
+    If append Then count = 2 Else count = 1
+    If selection.GetSelectedObjectCount2(-1) <> count Then Fail "Не подтверждён выбор рёбер."
+End Sub
+
+Private Sub CreateDimensions()
+    Dim i As Long, dimension As SldWorks.DisplayDimension
+    oldProjected = vw.ProjectedDimensions: modeKnown = True
+    vw.ProjectedDimensions = True
+    If vw.ProjectedDimensions = False Then Fail "Не включены проекционные размеры вида."
+    oldPreference = sw.GetUserPreferenceToggle(swInputDimValOnCreate): preferenceKnown = True
+    sw.SetUserPreferenceToggle swInputDimValOnCreate, False
+    If sw.GetUserPreferenceToggle(swInputDimValOnCreate) Then Fail "Не выключен запрос ввода значения размера."
+    For i = 1 To jobCount
+        phase = "dimension " & CStr(i)
+        doc.ClearSelection2 True
+        SelectMapped jobs(i).Datum, False
+        SelectMapped jobs(i).Target, True
+        If jobs(i).Horizontal Then
+            Set dimension = doc.AddHorizontalDimension2(jobs(i).AtX, jobs(i).AtY, 0#)
+        Else
+            Set dimension = doc.AddVerticalDimension2(jobs(i).AtX, jobs(i).AtY, 0#)
+        End If
+        If dimension Is Nothing Then Fail "SolidWorks не создал размер " & CStr(i)
+        created.Add dimension
+        expected.Add jobs(i).Expected
+        ValidateDimension dimension, jobs(i).Expected
+    Next i
+    doc.ClearSelection2 True
+End Sub
+
+Private Sub ValidateDimension(ByVal display As SldWorks.DisplayDimension, ByVal value As Double)
+    Dim dimension As SldWorks.Dimension, annotation As SldWorks.Annotation
+    Set dimension = display.GetDimension2(0)
+    If dimension Is Nothing Then Fail "Не прочитано значение размера."
+    WriteLog "VALUE expected mm=" & CStr(value * 1000#) & "; actual mm=" & CStr(dimension.SystemValue * 1000#)
+    If Abs(dimension.SystemValue - value) > VALUE_TOL Then Fail "Размер не совпадает с рассчитанным расстоянием."
+    Set annotation = display.GetAnnotation
+    If annotation Is Nothing Then Fail "Нет аннотации размера."
+    If annotation.IsDangling Then Fail "Размер потерял привязку."
+End Sub
+
+Private Sub ValidateAll()
+    Dim i As Long, display As SldWorks.DisplayDimension
+    For i = 1 To created.Count
+        Set display = created(i)
+        ValidateDimension display, CDbl(expected(i))
+    Next i
+End Sub
+
+Private Function Rollback() As Boolean
+    On Error GoTo Failed
+    Rollback = True
+    If created Is Nothing Then Exit Function
+    If doc Is Nothing Then Exit Function
+    Dim i As Long, display As SldWorks.DisplayDimension
+    For i = created.Count To 1 Step -1
+        Set display = created(i)
+        If DeleteCreated(display) = False Then Rollback = False
+    Next i
+    Exit Function
+Failed:
+    Rollback = False
+End Function
+
+Private Function DeleteCreated(ByVal display As SldWorks.DisplayDimension) As Boolean
+    On Error GoTo Failed
+    Dim annotation As SldWorks.Annotation, selection As SldWorks.SelectionMgr
+    Set annotation = display.GetAnnotation
+    If annotation Is Nothing Then Exit Function
+    doc.ClearSelection2 True
+    If annotation.Select3(False, Nothing) = False Then Exit Function
+    Set selection = doc.SelectionManager
+    If selection.GetSelectedObjectCount2(-1) <> 1 Then Exit Function
+    DeleteCreated = doc.Extension.DeleteSelection2(0)
+    Exit Function
+Failed:
+    WriteLog "DELETE FAILED " & CStr(Err.Number) & "; " & Err.Description
+End Function
+
+Private Function RestorePreference() As Boolean
+    On Error GoTo Failed
+    RestorePreference = True
+    If preferenceKnown = False Then Exit Function
+    sw.SetUserPreferenceToggle swInputDimValOnCreate, oldPreference
+    If sw.GetUserPreferenceToggle(swInputDimValOnCreate) <> oldPreference Then RestorePreference = False
+    Exit Function
+Failed:
+    RestorePreference = False
+End Function
+
+Private Function RestoreMode() As Boolean
+    On Error GoTo Failed
+    RestoreMode = True
+    If modeKnown = False Then Exit Function
+    vw.ProjectedDimensions = oldProjected
+    If vw.ProjectedDimensions <> oldProjected Then RestoreMode = False
+    Exit Function
+Failed:
+    RestoreMode = False
+End Function
+
+Private Sub OpenLog()
+    Dim folder As String
+    folder = Environ$("TEMP")
+    If Len(folder) = 0 Then Fail "Не найдена папка TEMP."
+    logPath = folder & "\FrameAutoSize_" & Format$(Now, "yyyymmdd_hhnnss") & "_" & CStr(CLng(Timer * 10#)) & ".txt"
+    logNumber = FreeFile
+    Open logPath For Output As #logNumber
+End Sub
+
+Private Sub WriteLog(ByVal message As String)
+    On Error Resume Next
+    If logNumber <> 0 Then Print #logNumber, message
+End Sub
+
+Private Sub CloseLog()
+    On Error Resume Next
+    If logNumber <> 0 Then Close #logNumber
+    logNumber = 0
+End Sub
+
+Private Function HasItems(ByVal values As Variant) As Boolean
+    On Error GoTo EmptyArray
+    If IsArray(values) Then HasItems = (UBound(values) >= LBound(values))
+EmptyArray:
+End Function
+
+Private Function PointText(ByVal value As Variant) As String
+    PointText = CStr(value(0)) & "," & CStr(value(1)) & "," & CStr(value(2))
+End Function
+
+Private Sub Fail(ByVal message As String)
+    Err.Raise vbObjectError + 2401, VERSION, message
+End Sub

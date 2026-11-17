@@ -1,0 +1,34 @@
+{
+  "version": "FrameAutoSize R1",
+  "source_sha256": "309d656f42f5849253e81da8324d57a95ecc54c314b025d0caa7217c40009533",
+  "grammar": {
+    "file": "FrameAutoSize.txt",
+    "sha256": "309d656f42f5849253e81da8324d57a95ecc54c314b025d0caa7217c40009533",
+    "grammar": "grammars-v4 VBA7.1 2766c2eed04f285dc763617c9459650892fcf5b9",
+    "errors": [],
+    "native_compile": false,
+    "native_run": false
+  },
+  "numerical": {
+    "scope": "Numerical test of exact Support expressions extracted from source + unit literals",
+    "support_cases": 240,
+    "errors": [],
+    "native_vba_compile": false,
+    "native_solidworks_run": false
+  },
+  "api": {
+    "scope": "Interop member and signature availability only; not VBA type checking or COM execution",
+    "members_checked": 81,
+    "constants_checked": 11,
+    "missing": [],
+    "assembly_sha256": "d6882de288a8a8c328e264f19b8466ad83793daa58a493665ebf88db6943eb51",
+    "native_vba_compile": false,
+    "native_solidworks_run": false
+  },
+  "native_vba_compile": false,
+  "native_solidworks_run": false,
+  "notes": [
+    "Source expressions tested; no end-to-end execution",
+    "First native actions: Compile, DiagnoseFront, DiagnoseTop"
+  ]
+}
