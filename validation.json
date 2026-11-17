@@ -1,91 +1,15 @@
 {
-  "version": "FrameAutoSize R1.5",
-  "source_sha256": "3deff2f6c3460a59629551cd3b66f44af38bc91c97f59cbc45157b0f38aa3025",
+  "version": "FrameAutoSize R1.6",
+  "source_sha256": "c9a9b5a4ec9813bd9e0779036598663bc8e63b9f3d67d5f12e1c6a3ad4d587b1",
   "grammar": {
     "file": "FrameAutoSize.txt",
-    "sha256": "3deff2f6c3460a59629551cd3b66f44af38bc91c97f59cbc45157b0f38aa3025",
+    "sha256": "c9a9b5a4ec9813bd9e0779036598663bc8e63b9f3d67d5f12e1c6a3ad4d587b1",
     "grammar": "grammars-v4 VBA7.1 2766c2eed04f285dc763617c9459650892fcf5b9",
     "errors": [],
     "native_compile": false,
     "native_run": false
   },
-  "front_station_replay": {
-    "scope": "Source arithmetic on captured front body bounds; not native execution",
-    "front_heights_mm": [
-      156.5,
-      182.0,
-      480.0,
-      480.0,
-      600.0,
-      600.0,
-      901.0,
-      1265.0,
-      1410.0
-    ],
-    "station_groups": 4,
-    "dimension_count": 9,
-    "separate_480_and_600_dimensions": true,
-    "local_anchors_closer_than_old_view_envelope": true,
-    "anchors": [
-      {
-        "height_mm": 156.5,
-        "station": 18,
-        "side": "right",
-        "anchor_mm": 196.816
-      },
-      {
-        "height_mm": 182.0,
-        "station": 8,
-        "side": "left",
-        "anchor_mm": 56.149
-      },
-      {
-        "height_mm": 480.0,
-        "station": 18,
-        "side": "right",
-        "anchor_mm": 202.816
-      },
-      {
-        "height_mm": 480.0,
-        "station": 14,
-        "side": "left",
-        "anchor_mm": 122.816
-      },
-      {
-        "height_mm": 600.0,
-        "station": 18,
-        "side": "right",
-        "anchor_mm": 208.816
-      },
-      {
-        "height_mm": 600.0,
-        "station": 17,
-        "side": "left",
-        "anchor_mm": 91.149
-      },
-      {
-        "height_mm": 901.0,
-        "station": 14,
-        "side": "left",
-        "anchor_mm": 116.816
-      },
-      {
-        "height_mm": 1265.0,
-        "station": 17,
-        "side": "left",
-        "anchor_mm": 85.149
-      },
-      {
-        "height_mm": 1410.0,
-        "station": 18,
-        "side": "right",
-        "anchor_mm": 214.816
-      }
-    ],
-    "native_vba_compile": false,
-    "native_solidworks_run": false
-  },
-  "top_selection_replay": {
+  "top_selection_and_layout_replay": {
     "scope": "VBA selection expressions replayed on captured bounds; not native execution",
     "X_mm": [
       355.0,
@@ -105,13 +29,14 @@
     "angle_bodies_excluded": 5,
     "anchors_fit_420x297_sheet": true,
     "translation_invariance": true,
+    "all_Y_left_of_view": true,
+    "all_X_below_view": true,
     "native_vba_compile": false,
     "native_solidworks_run": false
   },
-  "api": "No API additions relative to R1.4; 85 members and 11 constants previously audited",
-  "user_confirmation": "Separate equal heights by station; add far edges of two horizontal channels in top view",
-  "change": "Station-local front placement and deduplication; top far-channel Y and target-side placement",
-  "prior_native_evidence": "R1.4 user screenshots show dimensions on both views; R1.4 diagnostics passed geometry/planning/edge selection. R1.5 not run natively.",
-  "native_vba_compile_R15": false,
-  "native_solidworks_run_R15": false
+  "api": "No API changes relative to audited R1.4",
+  "change": "Top X strictly below and Y strictly left; fail before creation when insufficient space; successful production message only выполнено успешно after count/value/attachment validation",
+  "prior_native_evidence": "R1.5 confirmed by user with screenshot; R1.6 not run natively",
+  "native_vba_compile_R16": false,
+  "native_solidworks_run_R16": false
 }

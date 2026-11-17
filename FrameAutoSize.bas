@@ -1,9 +1,9 @@
 Attribute VB_Name = "FrameAutoSize"
 Option Explicit
 
-' FrameAutoSize R1.5. Source-only candidate; native SolidWorks test required.
+' FrameAutoSize R1.6. Source-only candidate; native SolidWorks test required.
 ' Standard references: SolidWorks type library and constant type library.
-Private Const VERSION As String = "FrameAutoSize R1.5"
+Private Const VERSION As String = "FrameAutoSize R1.6"
 Private Const FRAME_NAME As String = "рама"
 Private Const TOP_OVERALL_WIDTH As Boolean = True
 Private Const MODEL_TOL As Double = 0.00005
@@ -176,20 +176,20 @@ Private Sub RunMacro(ByVal requested As String, ByVal diagnostic As Boolean)
         CreateDimensions
         phase = "rebuild"
         doc.EditRebuild3
+        If created.Count <> jobCount Or expected.Count <> jobCount Then Fail "Созданы не все запланированные размеры."
         ValidateAll
         If RestorePreference() = False Then Fail "Не восстановлена настройка ввода размера."
         doc.GraphicsRedraw2
         WriteLog "SUCCESS dimensions=" & CStr(created.Count)
     End If
     Dim report As String
-    report = VERSION & vbCrLf & "Рама: " & partModel.GetTitle & vbCrLf & _
-        "Тел: " & memberCount & "; запланировано размеров: " & jobCount
     If diagnostic Then
-        report = report & vbCrLf & "Диагностика завершена. Чертёж не изменён."
+        report = VERSION & vbCrLf & "Рама: " & partModel.GetTitle & vbCrLf & _
+            "Тел: " & memberCount & "; запланировано размеров: " & jobCount & vbCrLf & _
+            "Диагностика завершена. Чертёж не изменён." & vbCrLf & "Журнал: " & logPath
     Else
-        report = report & vbCrLf & "Создано: " & created.Count & ". Повторный запуск добавляет размеры ещё раз."
+        report = "выполнено успешно"
     End If
-    report = report & vbCrLf & "Журнал: " & logPath
     CloseLog
     ReleaseObjects
     MsgBox report, vbInformation, VERSION
@@ -946,7 +946,17 @@ Private Sub SortAndPlace(ByVal mode As String)
         Loop
     Next i
     For i = 1 To jobCount
-        If jobs(i).Horizontal Then
+        If mode = "TOP" Then
+            If jobs(i).Horizontal Then
+                jobs(i).AtX = leftX + jobs(i).Expected * viewScale / 2#
+                jobs(i).AtY = bottomY - GAP - nx * STEP_GAP
+                nx = nx + 1
+            Else
+                jobs(i).AtX = leftX - GAP - nl * STEP_GAP
+                jobs(i).AtY = (edges(jobs(i).Datum).Y1 + edges(jobs(i).Target).Y1) / 2#
+                nl = nl + 1
+            End If
+        ElseIf jobs(i).Horizontal Then
             jobs(i).AtX = leftX + jobs(i).Expected * viewScale / 2#
             jobs(i).AtY = bottomY - GAP - nx * STEP_GAP
             If jobs(i).AtY >= 0.005 Then
@@ -990,8 +1000,10 @@ Private Sub SortAndPlace(ByVal mode As String)
             End If
             jobs(i).AtY = (edges(jobs(i).Datum).Y1 + edges(jobs(i).Target).Y1) / 2#
         End If
-        If jobs(i).AtX < 0.005 Or jobs(i).AtX > sheetWidth - 0.005 Or jobs(i).AtY < 0.005 Or jobs(i).AtY > sheetHeight - 0.005 Then _
+        If jobs(i).AtX < 0.005 Or jobs(i).AtX > sheetWidth - 0.005 Or jobs(i).AtY < 0.005 Or jobs(i).AtY > sheetHeight - 0.005 Then
+            If mode = "TOP" Then Fail "Для размеров снизу и слева недостаточно места. Освободите место слева и снизу от вида."
             Fail "Для размерных линий недостаточно места на листе. Передвиньте вид дальше от края."
+        End If
         WriteLog "PLAN " & CStr(i) & "; horizontal=" & CStr(jobs(i).Horizontal) & "; mm=" & CStr(jobs(i).Expected * 1000#) & _
             "; target=" & jobs(i).Label & "; datumEdge=" & jobs(i).Datum & "; targetEdge=" & jobs(i).Target & _
             "; station=" & CStr(jobs(i).Station) & "; anchor sheet mm=" & CStr(jobs(i).AtX * 1000#) & "; " & CStr(jobs(i).AtY * 1000#)
