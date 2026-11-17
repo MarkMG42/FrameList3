@@ -1,34 +1,28 @@
 {
-  "version": "FrameAutoSize R1",
-  "source_sha256": "309d656f42f5849253e81da8324d57a95ecc54c314b025d0caa7217c40009533",
+  "version": "FrameAutoSize R1.1",
+  "source_sha256": "6d2bfed5f1935c586dd61d8d6569b77f8e7b811574d2ed318e6b786a41ce2192",
   "grammar": {
     "file": "FrameAutoSize.txt",
-    "sha256": "309d656f42f5849253e81da8324d57a95ecc54c314b025d0caa7217c40009533",
+    "sha256": "6d2bfed5f1935c586dd61d8d6569b77f8e7b811574d2ed318e6b786a41ce2192",
     "grammar": "grammars-v4 VBA7.1 2766c2eed04f285dc763617c9459650892fcf5b9",
     "errors": [],
     "native_compile": false,
     "native_run": false
   },
-  "numerical": {
-    "scope": "Numerical test of exact Support expressions extracted from source + unit literals",
-    "support_cases": 240,
-    "errors": [],
-    "native_vba_compile": false,
-    "native_solidworks_run": false
-  },
   "api": {
     "scope": "Interop member and signature availability only; not VBA type checking or COM execution",
-    "members_checked": 81,
+    "members_checked": 82,
     "constants_checked": 11,
     "missing": [],
     "assembly_sha256": "d6882de288a8a8c328e264f19b8466ad83793daa58a493665ebf88db6943eb51",
     "native_vba_compile": false,
     "native_solidworks_run": false
   },
+  "numerical": {
+    "status": "240 projection expression checks passed in R1; geometric code unchanged"
+  },
+  "change": "Log beside current SWP; prompt for accessible folder on write failure; TEMP no longer used",
   "native_vba_compile": false,
   "native_solidworks_run": false,
-  "notes": [
-    "Source expressions tested; no end-to-end execution",
-    "First native actions: Compile, DiagnoseFront, DiagnoseTop"
-  ]
+  "prior_native_feedback": "R1 user screenshots: geometry failed to get extreme point for body Скругление27; unresolved pending log"
 }

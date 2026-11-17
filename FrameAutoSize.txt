@@ -1,8 +1,8 @@
 Option Explicit
 
-' FrameAutoSize R1. Source-only candidate; native SolidWorks test required.
+' FrameAutoSize R1.1. Source-only candidate; native SolidWorks test required.
 ' Standard references: SolidWorks type library and constant type library.
-Private Const VERSION As String = "FrameAutoSize R1"
+Private Const VERSION As String = "FrameAutoSize R1.1"
 Private Const FRAME_NAME As String = "рама"
 Private Const TOP_OVERALL_WIDTH As Boolean = True
 Private Const MODEL_TOL As Double = 0.00005
@@ -897,13 +897,35 @@ Failed:
 End Function
 
 Private Sub OpenLog()
-    Dim folder As String
-    folder = Environ$("TEMP")
-    If Len(folder) = 0 Then Fail "Не найдена папка TEMP."
-    logPath = folder & "\FrameAutoSize_" & Format$(Now, "yyyymmdd_hhnnss") & "_" & CStr(CLng(Timer * 10#)) & ".txt"
-    logNumber = FreeFile
-    Open logPath For Output As #logNumber
+    Dim host As SldWorks.SldWorks, macroPath As String, folder As String, separator As Long
+    Set host = Application.SldWorks
+    macroPath = host.GetCurrentMacroPathName
+    separator = InStrRev(macroPath, "\")
+    If separator > 0 Then
+        folder = Left$(macroPath, separator - 1)
+        If TryOpenLogFolder(folder) Then Exit Sub
+    End If
+    folder = InputBox("Не удалось сохранить журнал рядом с макросом." & vbCrLf & _
+        "Укажите полный путь к существующей доступной папке для журнала:", VERSION)
+    folder = Trim$(folder)
+    If Len(folder) = 0 Then Fail "Папка журнала не выбрана. Сохраните SWP в доступную папку и повторите запуск."
+    If TryOpenLogFolder(folder) = False Then Fail "Не удалось записать журнал в папку: " & folder
 End Sub
+
+Private Function TryOpenLogFolder(ByVal folder As String) As Boolean
+    On Error GoTo Failed
+    Dim candidate As String, number As Integer
+    If Right$(folder, 1) <> "\" Then folder = folder & "\"
+    candidate = folder & "FrameAutoSize_" & Format$(Now, "yyyymmdd_hhnnss") & "_" & CStr(CLng(Timer * 10#)) & ".txt"
+    number = FreeFile
+    Open candidate For Output As #number
+    logPath = candidate
+    logNumber = number
+    TryOpenLogFolder = True
+    Exit Function
+Failed:
+    logNumber = 0
+End Function
 
 Private Sub WriteLog(ByVal message As String)
     On Error Resume Next
