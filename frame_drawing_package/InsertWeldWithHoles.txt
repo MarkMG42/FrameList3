@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R35_CHANNEL_LENGTH_PACKAGE_P24"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R35_CHANNEL_LENGTH_PACKAGE_P25"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = True
@@ -3025,14 +3025,19 @@ Private Sub NdArcPoint(ByVal center As Variant, ByVal cx As Double, ByVal cy As 
     NdIncludePoint bounds, initialized, x, y
 End Sub
 
-Private Function NdBreakPlan(ByRef holes() As NDHole, ByVal holeCount As Long, ByRef bounds As NDBounds, Optional ByVal outlineWidth As Double = 0#) As Variant
+Private Function NdBreakPlan(ByRef holes() As NDHole, ByVal holeCount As Long, ByRef bounds As NDBounds, Optional ByVal outlineWidth As Double = 0#, _
+                             Optional ByVal directSheet As Boolean = False) As Variant
     Dim starts() As Double, finishes() As Double, leftEdge As Double, rightEdge As Double
     Dim width As Double, required As Double, middleLimit As Double, startX As Double, finishX As Double
     Dim bestStart As Double, bestFinish As Double, cursor As Double, swapStart As Double, swapFinish As Double
     Dim i As Long, j As Long, occupied As Long, hasMiddleHole As Boolean
     width = bounds.MaxX - bounds.MinX
     If outlineWidth <= 0# Then outlineWidth = width
-    required = (outlineWidth - BREAK_MAX_WIDTH + BREAK_GAP + 0.002) * width / outlineWidth
+    If directSheet Then
+        required = outlineWidth - BREAK_MAX_WIDTH + BREAK_GAP + 0.002
+    Else
+        required = (outlineWidth - BREAK_MAX_WIDTH + BREAK_GAP + 0.002) * width / outlineWidth
+    End If
     leftEdge = bounds.MinX + BREAK_END_CLEARANCE
     rightEdge = bounds.MaxX - BREAK_END_CLEARANCE
     For i = 1 To holeCount
@@ -3222,44 +3227,104 @@ Failed:
     WriteLog "Диагностика разрыва [" & stage & "] недоступна: " & Err.Description
 End Sub
 
+Private Function NdBreakCoordinates(ByVal coordinateMode As Long, ByVal plan As Variant, ByRef bounds As NDBounds, _
+                                    ByVal outline As Variant, ByVal viewOriginX As Double, ByVal modelOriginX As Double) As Variant
+    Select Case coordinateMode
+        Case 0
+            ' Keep the established placement first for views where it already works.
+            NdBreakCoordinates = Array(NdBreakSheetX(CDbl(plan(0)), bounds, outline) - viewOriginX, _
+                                       NdBreakSheetX(CDbl(plan(1)), bounds, outline) - viewOriginX)
+        Case 1
+            ' The plan is already expressed in projected sheet coordinates; avoid outline interpolation.
+            NdBreakCoordinates = Array(CDbl(plan(0)) - viewOriginX, CDbl(plan(1)) - viewOriginX)
+        Case 2
+            ' Use the projected model origin instead of assuming that GetXform is that origin.
+            NdBreakCoordinates = Array(CDbl(plan(0)) - modelOriginX, CDbl(plan(1)) - modelOriginX)
+        Case Else
+            Fail "Неизвестный способ пересчёта координат разрыва."
+    End Select
+End Function
+
 Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() As NDHole, ByVal holeCount As Long, _
                                     ByRef bounds As NDBounds, ByVal viewScale As Double, _
                                     ByVal created As Collection, ByVal expected As Collection) As Boolean
+    Dim coordinateMode As Long, warning As String, failures As String, originalPosition As Variant, restore As String
+    Dim retryLines() As NDLine, retryHoles() As NDHole, retryBounds As NDBounds
+    Dim retryLineCount As Long, retryHoleCount As Long, success As Boolean
+    originalPosition = ReadPosition(view)
+    For coordinateMode = 0 To 2
+        If coordinateMode > 0 Then
+            restore = NdRestorePosition(view, originalPosition)
+            If Len(restore) > 0 Then Fail "Не восстановлено положение перед повторной попыткой разрыва: " & restore
+            NdValidateAll created, expected, viewScale
+            drawingModel.GraphicsRedraw2
+            NdReadGeometry view, viewScale, retryLines, retryLineCount, retryHoles, retryHoleCount, retryBounds
+            NdValidateBores holes, holeCount, retryHoles, retryHoleCount
+            If Abs((retryBounds.MaxX - retryBounds.MinX) - (bounds.MaxX - bounds.MinX)) > ND_MODEL_TOL * viewScale Then _
+                Fail "После отмены не восстановился габарит до повторной попытки разрыва."
+        End If
+        warning = ""
+        If coordinateMode = 0 Then
+            success = NdTryBreakPlacement(view, holes, holeCount, bounds, viewScale, created, expected, coordinateMode, warning)
+        Else
+            success = NdTryBreakPlacement(view, retryHoles, retryHoleCount, retryBounds, viewScale, created, expected, coordinateMode, warning)
+        End If
+        If success Then
+            NdTryBreakLongView = True
+            Exit Function
+        End If
+        If Len(failures) > 0 Then failures = failures & "; "
+        failures = failures & "попытка " & CStr(coordinateMode + 1) & ": " & warning
+        If InStr(1, warning, "Нет свободного участка", vbTextCompare) > 0 Then Exit For
+        ' NdTryBreakPlacement returns False only after its verified rollback.
+        ' Any uncertain cleanup raises an error and prevents all subsequent attempts.
+    Next coordinateMode
+    breakWarnings.Add "Вид [" & currentView & "]: разрыв пропущен; " & failures
+End Function
+
+Private Function NdTryBreakPlacement(ByVal view As SldWorks.View, ByRef holes() As NDHole, ByVal holeCount As Long, _
+                                    ByRef bounds As NDBounds, ByVal viewScale As Double, _
+                                    ByVal created As Collection, ByVal expected As Collection, _
+                                     ByVal coordinateMode As Long, ByRef attemptWarning As String) As Boolean
     Dim plan As Variant, breakLine As SldWorks.BreakLine, outline As Variant, viewXform As Variant
     Dim postLines() As NDLine, postHoles() As NDHole, postBounds As NDBounds
     Dim postLineCount As Long, postHoleCount As Long, oldGap As Double, inserted As Boolean, gapChanged As Boolean, insertAttempted As Boolean
     Dim failure As String, rollback As String, gapError As String, firstX As Double, secondX As Double, originX As Double
-    Dim breakLines As Variant, inspectError As String, isBroken As Boolean
+    Dim breakLines As Variant, inspectError As String, isBroken As Boolean, coordinateDescription As String
+    Dim utility As SldWorks.MathUtility, transform As SldWorks.MathTransform, modelOrigin As Variant, coordinates As Variant
     outline = ReadOutline(view)
     If VERBOSE_BREAK_GEOMETRY Then
         WriteLog "Разрыв до: контур Y=" & CStr(CDbl(outline(1))) & "..." & CStr(CDbl(outline(3))) & _
              "; геометрия Y=" & CStr(bounds.MinY) & "..." & CStr(bounds.MaxY)
     End If
-    plan = NdBreakPlan(holes, holeCount, bounds, CDbl(outline(2)) - CDbl(outline(0)))
+    plan = NdBreakPlan(holes, holeCount, bounds, CDbl(outline(2)) - CDbl(outline(0)), coordinateMode > 0)
     If IsEmpty(plan) Then
-        breakWarnings.Add "Вид [" & currentView & "]: нет свободного участка для длины до 150 мм без закрытия отверстий."
+        attemptWarning = "Нет свободного участка для длины до 150 мм без закрытия отверстий."
         Exit Function
     End If
     On Error GoTo Failed
     MarkStage "Разрыв длинного вида после нанесения размеров"
     If HasItems(view.GetBreakLines) Then Fail "В скопированном виде уже есть линии разрыва."
-    firstX = NdBreakSheetX(CDbl(plan(0)), bounds, outline)
-    secondX = NdBreakSheetX(CDbl(plan(1)), bounds, outline)
     viewXform = view.GetXform
     If HasItems(viewXform) = False Then Fail "Не определено начало вида для разрыва."
     If UBound(viewXform) - LBound(viewXform) < 2 Then Fail "Неизвестный формат преобразования вида."
     originX = CDbl(viewXform(LBound(viewXform)))
-    If firstX <= CDbl(outline(0)) Or secondX >= CDbl(outline(2)) Or firstX >= secondX Then _
-        Fail "Линии разрыва оказались вне контура вида."
-    WriteLog "Разрыв: проекция X=" & CStr(CDbl(plan(0))) & "..." & CStr(CDbl(plan(1))) & _
-             "; контур X=" & CStr(CDbl(outline(0))) & "..." & CStr(CDbl(outline(2))) & _
-             "; линии на листе X=" & CStr(firstX) & "..." & CStr(secondX) & "; начало вида X=" & CStr(originX)
+    Set utility = app.GetMathUtility: Set transform = view.ModelToViewTransform
+    modelOrigin = NdProject(utility, transform, Array(0#, 0#, 0#))
+    coordinates = NdBreakCoordinates(coordinateMode, plan, bounds, outline, originX, CDbl(modelOrigin(0)))
+    firstX = CDbl(coordinates(0)): secondX = CDbl(coordinates(1))
+    If firstX >= secondX Then Fail "Некорректный порядок координат линий разрыва."
+    WriteLog "Попытка разрыва " & CStr(coordinateMode + 1) & ": проекция X=" & CStr(CDbl(plan(0))) & "..." & CStr(CDbl(plan(1))) & _
+        "; GetXform X=" & originX & "; проекция начала модели X=" & modelOrigin(0) & _
+        "; API X=" & firstX & "..." & secondX & "; угол=" & view.Angle
+    coordinateDescription = "начала GetXform/модели, мм=" & Format$(originX * 1000#, "0.000") & "/" & Format$(CDbl(modelOrigin(0)) * 1000#, "0.000") & _
+        "; API X, мм=" & Format$(firstX * 1000#, "0.000") & "..." & Format$(secondX * 1000#, "0.000")
     oldGap = view.BreakLineGap
     view.BreakLineGap = BREAK_GAP
     gapChanged = True
     SelectDrawingView view
     insertAttempted = True
-    Set breakLine = view.InsertBreak3(swBreakLineVertical, firstX - originX, secondX - originX, swBreakLine_Curve, 0, True)
+    Set breakLine = view.InsertBreak3(swBreakLineVertical, firstX, secondX, swBreakLine_Curve, 0, True)
     If breakLine Is Nothing Then Fail "SOLIDWORKS не создал разрыв."
     inserted = True
     breakLines = view.GetBreakLines
@@ -3270,6 +3335,7 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
         drawing.BreakView
     End If
     drawingModel.EditRebuild3
+    drawingModel.GraphicsRedraw2
     isBroken = view.IsBroken
     WriteLog "Разрыв после перестроения: IsBroken=" & CStr(isBroken)
     If isBroken = False Then Fail "SOLIDWORKS не применил разрыв."
@@ -3286,7 +3352,7 @@ Private Function NdTryBreakLongView(ByVal view As SldWorks.View, ByRef holes() A
     breaksCompleted = breaksCompleted + 1
     WriteLog "Разрыв подтверждён: до=" & CStr((bounds.MaxX - bounds.MinX) * 1000#) & _
              " мм; после=" & CStr((CDbl(outline(2)) - CDbl(outline(0))) * 1000#) & " мм."
-    NdTryBreakLongView = True
+    NdTryBreakPlacement = True
     Exit Function
 Failed:
     failure = Err.Description
@@ -3311,7 +3377,8 @@ Failed:
         Fail "Не удалось полностью отменить ошибочный разрыв вида [" & currentView & "]: " & failure & rollback & gapError
     If inserted Then NdValidateAll created, expected, viewScale
     WriteLog "Разрыв пропущен: " & failure
-    breakWarnings.Add "Вид [" & currentView & "]: разрыв пропущен; " & failure
+    attemptWarning = failure
+    If Len(coordinateDescription) > 0 Then attemptWarning = attemptWarning & " (" & coordinateDescription & ")"
 End Function
 
 Private Sub NdReadGeometry(ByVal view As SldWorks.View, ByVal viewScale As Double, ByRef lines() As NDLine, ByRef lineCount As Long, _

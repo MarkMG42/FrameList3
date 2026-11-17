@@ -1,5 +1,5 @@
 {
-  "version": "FrameDrawingPackage P2.4",
+  "version": "FrameDrawingPackage P2.5",
   "grammar": {
     "reports": [
       {
@@ -14,7 +14,7 @@
       },
       {
         "file": "FrameDrawingPackage.txt",
-        "sha256": "3d797dc506e233658cf01b87a7b71c1460722caf364a8562b1cf421e7398ae85",
+        "sha256": "9d191ec549340060317d3476d050d5b11f9ea83acd6759dabac5c722fb5f1bf8",
         "errors": []
       },
       {
@@ -24,7 +24,7 @@
       },
       {
         "file": "InsertWeldWithHoles.txt",
-        "sha256": "d76980c25d3b78f0b15adb6f4f88a60744e555e83bcd58d12ae1744805021a02",
+        "sha256": "c8318cb725771a8ec06bb77a3555231b672b8093addebff6bd8790ba482ea177",
         "errors": []
       }
     ],
@@ -47,8 +47,9 @@
     "existing_top_front_dimension_rules_preserved": true,
     "break_recheck_after_move_uses_bore_identity": true,
     "selected_view_break_repair_preserves_existing_dimensions_checked": true,
+    "break_coordinate_retries_with_verified_rollback_checked": true,
     "break_bore_identity_check_present": true,
-    "break_planner_and_rollback_unchanged": true,
+    "legacy_break_formula_and_rollback_preserved": true,
     "mounting_display_and_captions_checked": true,
     "display_state_binding_checked": true,
     "overview_without_dimension_calls_checked": true,
@@ -807,12 +808,28 @@
     "native_vba_compile": false,
     "native_solidworks_run": false
   },
+  "break_coordinate_checks": {
+    "cases_passed": [
+      "1102mm_two_holes_at_30_and_120_fit_148mm",
+      "projected_translation_preserves_gap",
+      "direct_coordinate_plan_accounts_for_outline_padding",
+      "projected_model_origin_recovers_planned_sheet_positions",
+      "60mm_origin_offset_can_hide_only_second_hole",
+      "correct_origin_keeps_both_holes",
+      "legacy_first_attempt_retained",
+      "duplicate_rings_do_not_change_planned_interval",
+      "no_safe_gap_is_rejected"
+    ],
+    "method": "Actual VBA arithmetic translated to Python; simulated origin offset, not SolidWorks API execution",
+    "native_vba_compile": false,
+    "native_solidworks_run": false
+  },
   "source_sha256": {
     "FrameCutListDimensionsV3.txt": "d0171e3ba398430023bc26ed0cb40524529c5cf3b6557f33a2a14b8f8baa5350",
-    "FrameDrawingPackage.txt": "3d797dc506e233658cf01b87a7b71c1460722caf364a8562b1cf421e7398ae85",
+    "FrameDrawingPackage.txt": "9d191ec549340060317d3476d050d5b11f9ea83acd6759dabac5c722fb5f1bf8",
     "FrameAutoSize.txt": "3f1b508e05f1231ee49d7e80d439a0175107a4fb384fb3152d5b07a7dfee55f8",
     "FramePackageSupport.txt": "434ec63ce632020ed5b8c699ae16af7a69f227b1ccf7fc7ff2d4e0102f3e3078",
-    "InsertWeldWithHoles.txt": "d76980c25d3b78f0b15adb6f4f88a60744e555e83bcd58d12ae1744805021a02"
+    "InsertWeldWithHoles.txt": "c8318cb725771a8ec06bb77a3555231b672b8093addebff6bd8790ba482ea177"
   },
   "internal_network_template_path_removed": true,
   "corporate_cutlist_template": "Set TABLE_TEMPLATE locally in your SWP; standard installed template lookup retained",
