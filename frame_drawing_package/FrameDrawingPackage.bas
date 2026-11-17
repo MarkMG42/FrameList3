@@ -1,7 +1,7 @@
 Attribute VB_Name = "FrameDrawingPackage"
 Option Explicit
 
-Private Const VERSION As String = "FrameDrawingPackage P2"
+Private Const VERSION As String = "FrameDrawingPackage P2.1"
 Private Const DRAWING_TEMPLATE As String = ""
 Private Const FRAME_TOKEN As String = "рама"
 Private Type FrameTask
@@ -383,6 +383,7 @@ Private Sub BuildTask(ByVal index As Long, ByVal props As Variant, _
     FramePackageSupport.FitView drawingModel, iso, 0.045, 0.055, width - 0.045, height - 0.035
     warning = FrameCutListDimensionsV3.RunForPackage(host, drawingModel, iso, frame, count)
     If Len(warning) > 0 Then warnings.Add sheetName & ": " & warning
+    FramePackageSupport.FitAnnotatedView drawingModel, iso, 0.03, 0.045, width - 0.01, height - 0.015
     FramePackageSupport.AuditCurrentSheet drawingModel, audit
     sheetName = sheetBase & "_Сверловка"
     stage = sheetName & ": деталь рамы и сверловка"
@@ -401,10 +402,14 @@ Private Sub BuildTask(ByVal index As Long, ByVal props As Variant, _
     Set top = FramePackageSupport.StandardView(drawingModel, assemblyModel.GetPathName, tasks(index).AssemblyConfig, "TOP", prefix & "_TOP")
     PinView front, tasks(index).DisplayState
     PinView top, tasks(index).DisplayState
+    FramePackageSupport.MountingDisplay drawingModel, front
+    FramePackageSupport.MountingDisplay drawingModel, top
     FramePackageSupport.FitMountingPair host, drawingModel, front, top, frame, width, height
     dimensions = FrameAutoSize.RunForPackage(host, drawingModel, front, frame, "FRONT")
     dimensions = dimensions + FrameAutoSize.RunForPackage(host, drawingModel, top, frame, "TOP")
     FramePackageSupport.CheckMountingPair drawingModel, front, top, width, height
+    FramePackageSupport.AddViewCaption drawingModel, front, "Вид спереди"
+    FramePackageSupport.AddViewCaption drawingModel, top, "Вид сверху"
     FramePackageSupport.AuditCurrentSheet drawingModel, audit
     Debug.Print prefix & "; " & tasks(index).InstanceName & "; config=" & tasks(index).AssemblyConfig & "; mounting dimensions=" & dimensions
 End Sub

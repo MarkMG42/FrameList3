@@ -232,12 +232,12 @@ Public Sub SetScaleAndPlace(ByVal model As SldWorks.ModelDoc2, ByVal view As Sld
 End Sub
 
 Public Sub FormatMountingDimension(ByVal display As SldWorks.DisplayDimension)
-    Dim annotation As SldWorks.Annotation, format As SldWorks.TextFormat
+    Dim annotation As SldWorks.Annotation, textFormat As SldWorks.TextFormat
     Set annotation = display.GetAnnotation
-    Set format = annotation.GetTextFormat(0)
-    Call Require((format Is Nothing) = False, "Нет формата текста монтажного размера.")
-    format.CharHeight = 0.0035
-    Call Require(annotation.SetTextFormat(0, False, format), "Не установлен текст размеров 3,5 мм.")
+    Set textFormat = annotation.GetTextFormat(0)
+    Call Require((textFormat Is Nothing) = False, "Нет формата текста монтажного размера.")
+    textFormat.CharHeight = 0.0035
+    Call Require(annotation.SetTextFormat(0, False, textFormat), "Не установлен текст размеров 3,5 мм.")
 End Sub
 
 Private Function Smaller(ByVal a As Double, ByVal b As Double) As Double
@@ -342,4 +342,116 @@ Public Sub CheckMountingPair(ByVal model As SldWorks.ModelDoc2, ByVal front As S
                              ByVal width As Double, ByVal height As Double)
     model.EditRebuild3
     ValidatePairBoxes MountedEnvelope(front), MountedEnvelope(top), width, height
+End Sub
+
+Public Sub MountingDisplay(ByVal model As SldWorks.ModelDoc2, ByVal view As SldWorks.View)
+    Call Require(view.SetDisplayMode4(False, swHIDDEN_GREYED, False, False, True), "Не включены невидимые линии вида.")
+    view.SetDisplayTangentEdges2 swTangentEdgesHidden
+    model.EditRebuild3
+    Call Require(view.GetDisplayMode2 = swHIDDEN_GREYED, "Не подтверждены невидимые линии вида.")
+    Call Require(view.GetDisplayTangentEdges2 = swTangentEdgesHidden, "Не подтверждено скрытие касательных кромок.")
+End Sub
+
+Public Function AnnotatedViewBox(ByVal view As SldWorks.View) As Variant
+    Dim box As Variant, display As SldWorks.DisplayDimension, annotation As SldWorks.Annotation, p As Variant
+    Dim textFormat As SldWorks.TextFormat, height As Double, radius As Double, value As SldWorks.Dimension
+    box = ViewBox(view)
+    Set display = view.GetFirstDisplayDimension5
+    Do While Not display Is Nothing
+        Set annotation = display.GetAnnotation: p = annotation.GetPosition
+        Set textFormat = annotation.GetTextFormat(0): height = 0.004
+        If Not textFormat Is Nothing Then
+            If textFormat.CharHeight > height Then height = textFormat.CharHeight
+        End If
+        Set value = display.GetDimension2(0)
+        Call Require((value Is Nothing) = False, "Нет значения размера при компоновке.")
+        radius = height * (0.6 * Len(Format$(value.SystemValue * 1000#, "0.###")) + 1#)
+        If radius < 0.012 Then radius = 0.012
+        ' Conservative square for rotated dimension text and arrows, not exact glyph extents.
+        If p(0) - radius < box(0) Then box(0) = p(0) - radius
+        If p(0) + radius > box(2) Then box(2) = p(0) + radius
+        If p(1) - radius < box(1) Then box(1) = p(1) - radius
+        If p(1) + radius > box(3) Then box(3) = p(1) + radius
+        Set display = display.GetNext5
+    Loop
+    AnnotatedViewBox = box
+End Function
+
+Public Sub FitAnnotatedView(ByVal model As SldWorks.ModelDoc2, ByVal view As SldWorks.View, _
+                            ByVal left As Double, ByVal bottom As Double, ByVal right As Double, ByVal top As Double)
+    Dim box As Variant, oldOrigin As Variant, newOrigin As Variant, p As Variant, point As Variant, record As Variant
+    Dim display As SldWorks.DisplayDimension, dimension As SldWorks.Dimension, annotation As SldWorks.Annotation
+    Dim saved As Collection, factor As Double, position As Variant, i As Long
+    Call Require(right > left And top > bottom, "Нет области для изометрии с размерами.")
+    For i = 1 To 5
+        model.EditRebuild3
+        box = AnnotatedViewBox(view)
+        factor = Smaller((right - left) / (box(2) - box(0)), (top - bottom) / (box(3) - box(1))) * 0.985
+        Call Require(factor > 0#, "Не вычислен масштаб изометрии.")
+        Set saved = New Collection: oldOrigin = view.Position
+        Set display = view.GetFirstDisplayDimension5
+        Do While Not display Is Nothing
+            Set annotation = display.GetAnnotation: p = annotation.GetPosition
+            Set dimension = display.GetDimension2(0)
+            ReDim record(0 To 3)
+            Set record(0) = display: record(1) = CDbl(p(0)): record(2) = CDbl(p(1)): record(3) = dimension.SystemValue
+            saved.Add record
+            Set display = display.GetNext5
+        Loop
+        view.UseSheetScale = False
+        view.ScaleDecimal = view.ScaleDecimal * factor
+        model.EditRebuild3
+        newOrigin = view.Position
+        For Each record In saved
+            Set display = record(0): Set annotation = display.GetAnnotation
+            point = FrameCutListDimensionsV3.MoveLengthAnnotationForPackage(annotation, _
+                newOrigin(0) + (CDbl(record(1)) - oldOrigin(0)) * factor, _
+                newOrigin(1) + (CDbl(record(2)) - oldOrigin(1)) * factor)
+            Set dimension = display.GetDimension2(0)
+            Call Require(Abs(dimension.SystemValue - CDbl(record(3))) < 0.000001 And annotation.IsDangling = False, _
+                "Размер длины изменился или потерял привязку при подборе масштаба.")
+        Next record
+        box = AnnotatedViewBox(view): oldOrigin = view.Position
+        position = view.Position
+        position(0) = position(0) + (left + right - box(0) - box(2)) / 2#
+        position(1) = position(1) + (bottom + top - box(1) - box(3)) / 2#
+        view.Position = position
+        model.EditRebuild3
+        ' View movement normally carries annotations. Check actual bounds after rebuilding.
+        box = AnnotatedViewBox(view)
+    Next i
+    Call Require(box(0) >= left And box(1) >= bottom And box(2) <= right And box(3) <= top, _
+        "Изометрия с размерами не поместилась внутри рамки.")
+    Debug.Print "Length isometry scale=" & view.ScaleDecimal
+End Sub
+
+Public Sub AddViewCaption(ByVal model As SldWorks.ModelDoc2, ByVal view As SldWorks.View, ByVal text As String)
+    Dim drawing As SldWorks.DrawingDoc, note As SldWorks.Note, annotation As SldWorks.Annotation
+    Dim textFormat As SldWorks.TextFormat, box As Variant, extent As Variant, p As Variant
+    Dim centre As Double, baseline As Double
+    Set drawing = model
+    box = MountedEnvelope(view): centre = (box(0) + box(2)) / 2#: baseline = box(3) + 0.004
+    Call Require(drawing.ActivateView(view.GetName2), "Не активирован вид для подписи.")
+    model.ClearSelection2 True
+    Set note = model.InsertNote(text)
+    Call Require((note Is Nothing) = False, "Не создана подпись: " & text)
+    Set annotation = note.GetAnnotation: Set textFormat = annotation.GetTextFormat(0)
+    Call Require((textFormat Is Nothing) = False, "Нет формата подписи вида.")
+    textFormat.CharHeight = 0.0035
+    Call Require(annotation.SetTextFormat(0, False, textFormat), "Не задан формат подписи вида.")
+    Call Require(annotation.SetPosition2(centre, baseline, 0#), "Не размещена подпись вида.")
+    model.EditRebuild3
+    extent = note.GetExtent
+    Call Require(HasItems(extent), "Нет границ подписи вида.")
+    p = annotation.GetPosition
+    Call Require(annotation.SetPosition2(p(0) + centre - (extent(0) + extent(3)) / 2#, _
+        p(1) + baseline - extent(1), 0#), "Не выровнена подпись вида.")
+    model.EditRebuild3
+    extent = note.GetExtent
+    Dim sheet As SldWorks.Sheet, width As Double, height As Double
+    Set sheet = drawing.GetCurrentSheet: sheet.GetSize width, height
+    Call Require(extent(0) >= 0.025 And extent(3) <= width - 0.01 And extent(1) >= 0.045 And extent(4) <= height - 0.005, _
+        "Подпись вида вышла за рамку листа.")
+    drawing.ActivateView ""
+    model.ClearSelection2 True
 End Sub

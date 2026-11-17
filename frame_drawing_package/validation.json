@@ -1,5 +1,5 @@
 {
-  "version": "FrameDrawingPackage P2",
+  "version": "FrameDrawingPackage P2.1",
   "grammar": {
     "reports": [
       {
@@ -9,22 +9,22 @@
       },
       {
         "file": "FrameCutListDimensionsV3.txt",
-        "sha256": "33bfb2f92a517508d6469c60748923954943a2b545a3102882558ae8c9d8bc1c",
+        "sha256": "d0171e3ba398430023bc26ed0cb40524529c5cf3b6557f33a2a14b8f8baa5350",
         "errors": []
       },
       {
         "file": "FrameDrawingPackage.txt",
-        "sha256": "50b85c32c88927fd72b1cba4a26b9f301037904a81228354dcd2a2afb4660f28",
+        "sha256": "ff4c40f306c5c1642591d776eecc4d40cebb0c72279a743449d691c473ec3a73",
         "errors": []
       },
       {
         "file": "FramePackageSupport.txt",
-        "sha256": "5c961a3570b8f83484b907d5c0c102b254340beae1775dd50d5af29d3478eb90",
+        "sha256": "434ec63ce632020ed5b8c699ae16af7a69f227b1ccf7fc7ff2d4e0102f3e3078",
         "errors": []
       },
       {
         "file": "InsertWeldWithHoles.txt",
-        "sha256": "96316b5e4568ee6dc928ebd30d95ca81e126ec6ae50130f5784be20b87cd549b",
+        "sha256": "ff412ffe9510797597b0c82ceabac0b42fd8e8e4a1ba399d6e5a3dd16b1ffedf",
         "errors": []
       }
     ],
@@ -37,8 +37,12 @@
     ],
     "file_output_statements": [],
     "embedded_and_supplied_cutlist_equal_ignoring_case": true,
-    "explicit_require_calls_checked": 86,
+    "explicit_require_calls_checked": 102,
     "cross_module_contracts_checked": true,
+    "isometry_fit_after_dimensions_checked": true,
+    "cutlist_on_sheet_required_checked": true,
+    "break_threshold_m": 0.9,
+    "mounting_display_and_captions_checked": true,
     "display_state_binding_checked": true,
     "overview_without_dimension_calls_checked": true,
     "sheet_scale_1_10_checked": true,
@@ -50,8 +54,8 @@
       4,
       12
     ],
-    "api_members_checked": 71,
-    "constants_checked": 12,
+    "api_members_checked": 88,
+    "constants_checked": 16,
     "api": [
       {
         "interface": "ISldWorks",
@@ -102,6 +106,14 @@
         "parameters": [
           "Object1",
           "Object2"
+        ]
+      },
+      {
+        "interface": "IModelDoc2",
+        "member": "InsertNote",
+        "signature": "20011c0e",
+        "parameters": [
+          "Text"
         ]
       },
       {
@@ -225,6 +237,14 @@
       },
       {
         "interface": "IDrawingDoc",
+        "member": "ActivateView",
+        "signature": "2001020e",
+        "parameters": [
+          "ViewName"
+        ]
+      },
+      {
+        "interface": "IDrawingDoc",
         "member": "GetSheetNames",
         "signature": "20001c",
         "parameters": []
@@ -328,6 +348,38 @@
         "interface": "ISheet",
         "member": "GetName",
         "signature": "20000e",
+        "parameters": []
+      },
+      {
+        "interface": "IView",
+        "member": "SetDisplayMode4",
+        "signature": "2005020208020202",
+        "parameters": [
+          "UseParent",
+          "Mode",
+          "Faceted",
+          "Edges",
+          "CThreadHighQuality"
+        ]
+      },
+      {
+        "interface": "IView",
+        "member": "GetDisplayMode2",
+        "signature": "200008",
+        "parameters": []
+      },
+      {
+        "interface": "IView",
+        "member": "SetDisplayTangentEdges2",
+        "signature": "20010108",
+        "parameters": [
+          "DisplayIn"
+        ]
+      },
+      {
+        "interface": "IView",
+        "member": "GetDisplayTangentEdges2",
+        "signature": "200008",
         "parameters": []
       },
       {
@@ -521,6 +573,80 @@
         "parameters": []
       },
       {
+        "interface": "INote",
+        "member": "GetExtent",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "INote",
+        "member": "GetAnnotation",
+        "signature": "20001c",
+        "parameters": []
+      },
+      {
+        "interface": "ITableAnnotation",
+        "member": "GetColumnWidth",
+        "signature": "20010d08",
+        "parameters": [
+          "Index"
+        ]
+      },
+      {
+        "interface": "ITableAnnotation",
+        "member": "GetRowHeight",
+        "signature": "20010d08",
+        "parameters": [
+          "Index"
+        ]
+      },
+      {
+        "interface": "ITableAnnotation",
+        "member": "get_AnchorType",
+        "signature": "200008",
+        "parameters": []
+      },
+      {
+        "interface": "ITableAnnotation",
+        "member": "set_AnchorType",
+        "signature": "20010108",
+        "parameters": [
+          "Anchor"
+        ]
+      },
+      {
+        "interface": "ITableAnnotation",
+        "member": "get_RowCount",
+        "signature": "200008",
+        "parameters": []
+      },
+      {
+        "interface": "ITableAnnotation",
+        "member": "get_ColumnCount",
+        "signature": "200008",
+        "parameters": []
+      },
+      {
+        "interface": "ITableAnnotation",
+        "member": "get_Anchored",
+        "signature": "200002",
+        "parameters": []
+      },
+      {
+        "interface": "ITableAnnotation",
+        "member": "set_Anchored",
+        "signature": "20010102",
+        "parameters": [
+          "Attached"
+        ]
+      },
+      {
+        "interface": "ITableAnnotation",
+        "member": "GetAnnotation",
+        "signature": "20001282f0",
+        "parameters": []
+      },
+      {
         "interface": "ITextFormat",
         "member": "get_CharHeight",
         "signature": "20000d",
@@ -568,11 +694,11 @@
   "native_vba_compile": false,
   "native_solidworks_run": false,
   "source_sha256": {
-    "FrameCutListDimensionsV3.txt": "33bfb2f92a517508d6469c60748923954943a2b545a3102882558ae8c9d8bc1c",
-    "FrameDrawingPackage.txt": "50b85c32c88927fd72b1cba4a26b9f301037904a81228354dcd2a2afb4660f28",
+    "FrameCutListDimensionsV3.txt": "d0171e3ba398430023bc26ed0cb40524529c5cf3b6557f33a2a14b8f8baa5350",
+    "FrameDrawingPackage.txt": "ff4c40f306c5c1642591d776eecc4d40cebb0c72279a743449d691c473ec3a73",
     "FrameAutoSize.txt": "e807668d1605e87f36b2c73ac0d4bf4abad6c7a6977a6928acdd4f06b2a2ccd0",
-    "FramePackageSupport.txt": "5c961a3570b8f83484b907d5c0c102b254340beae1775dd50d5af29d3478eb90",
-    "InsertWeldWithHoles.txt": "96316b5e4568ee6dc928ebd30d95ca81e126ec6ae50130f5784be20b87cd549b"
+    "FramePackageSupport.txt": "434ec63ce632020ed5b8c699ae16af7a69f227b1ccf7fc7ff2d4e0102f3e3078",
+    "InsertWeldWithHoles.txt": "ff412ffe9510797597b0c82ceabac0b42fd8e8e4a1ba399d6e5a3dd16b1ffedf"
   },
   "internal_network_template_path_removed": true,
   "corporate_cutlist_template": "Set TABLE_TEMPLATE locally in your SWP; standard installed template lookup retained",

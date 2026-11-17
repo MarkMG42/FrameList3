@@ -86,6 +86,10 @@ Failed:
     Err.Raise number, origin, message
 End Function
 
+Public Function MoveLengthAnnotationForPackage(ByVal annotation As SldWorks.Annotation, ByVal x As Double, ByVal y As Double) As Variant
+    MoveLengthAnnotationForPackage = MoveAnnotationToTarget(annotation, x, y)
+End Function
+
 Private Sub ClearPackageContext()
     Set packageApp = Nothing: Set packageDrawing = Nothing
     Set packageView = Nothing: Set packageFrame = Nothing
