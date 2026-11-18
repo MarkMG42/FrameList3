@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R35_CHANNEL_LENGTH_PACKAGE_P25"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R35_CHANNEL_LENGTH_PACKAGE_P26"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = True
@@ -213,7 +213,7 @@ End Sub
 
 Private Sub RunCore()
     Dim source As SldWorks.View, sheet As SldWorks.Sheet
-    Dim config As String, message As String, cleanup As String, errorText As String, prompt As String
+    Dim config As String, message As String, cleanup As String, errorText As String
     Dim tableTemplate As String, tableWarning As String
     Dim bodies As Collection, cursorY As Double, width As Double, height As Double
     Dim props As Variant, i As Long, completed As Long, icon As VbMsgBoxStyle
@@ -424,38 +424,23 @@ Finished:
     If Len(logPath) > 0 Then message = message & vbCrLf & "Журнал: " & logPath
     WriteLog "Итог: " & Replace(message, vbCrLf, " | ")
 
-    If runCompleted Then
-        hasPartialErrors = completed = 0 Or dimensionsFailed > 0 Or sourceBalloonsFailed > 0 Or _
-                           skipped.Count > 0 Or finishFailure
-        If madeTableReady And balloonsFailed > 0 Then hasPartialErrors = True
-        hasOtherWarnings = Len(tableWarning) > 0 Or dimensionWarnings.Count > 0 Or breakWarnings.Count > 0 Or _
-                           balloonWarnings.Count > 0 Or orientationWarnings.Count > 0 Or balloonsFailed > 0 Or _
-                           pendingPaste
-    End If
-    If hadFailure Or finishFailure Then
-        prompt = "Макрос завершён с ошибкой."
-        icon = vbExclamation
-    ElseIf runCompleted = False Then
-        prompt = "Макрос не выполнен: нет подходящих тел."
-        icon = vbExclamation
-    ElseIf hasPartialErrors Then
-        prompt = "Макрос завершён с ошибками."
-        icon = vbExclamation
-    ElseIf icon = vbExclamation Or hasOtherWarnings Then
-        prompt = "Макрос выполнен с предупреждениями."
-        icon = vbExclamation
-    Else
-        prompt = "Макрос выполнен успешно."
-        icon = vbInformation
-    End If
     If dimensionsOutside > 0 Then
         message = message & vbCrLf & "Виды вне листа: " & CStr(dimensionsOutside)
-        hasPartialErrors = True
+        WriteLog "Виды вне листа: " & CStr(dimensionsOutside)
     End If
     packageCreated = completed
     If hadFailure Or finishFailure Or pendingPaste Then Err.Raise vbObjectError + 3201, "InsertWeldWithHoles", message
-    If hasPartialErrors Or hasOtherWarnings Or icon = vbExclamation Then packageWarning = message
-    If runCompleted = False And completed > 0 Then packageWarning = message
+
+    ' Break warnings stay in Immediate. Report missing dimensions or other sheet issues.
+    If runCompleted Then
+        hasPartialErrors = dimensionsFailed > 0 Or skipped.Count > 0 Or dimensionsOutside > 0
+        If ADD_BALLOONS Then hasPartialErrors = hasPartialErrors Or sourceBalloonsFailed > 0 Or balloonsFailed > 0
+        hasOtherWarnings = Len(tableWarning) > 0 Or dimensionWarnings.Count > 0 Or _
+                           balloonWarnings.Count > 0 Or orientationWarnings.Count > 0
+    Else
+        hasPartialErrors = True
+    End If
+    If hasPartialErrors Or hasOtherWarnings Then packageWarning = message
 End Sub
 
 Private Function ProcessBody(ByVal source As SldWorks.View, ByVal config As String, ByVal index As Long, _

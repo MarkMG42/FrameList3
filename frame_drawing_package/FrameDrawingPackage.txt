@@ -1,7 +1,7 @@
 Attribute VB_Name = "FrameDrawingPackage"
 Option Explicit
 
-Private Const VERSION As String = "FrameDrawingPackage P2.5"
+Private Const VERSION As String = "FrameDrawingPackage P2.6"
 Private Const DRAWING_TEMPLATE As String = ""
 Private Const FRAME_TOKEN As String = "рама"
 Private Type FrameTask
@@ -21,7 +21,7 @@ Private originalDisplayState As String
 Private overviewDisplayState As String
 Private originalPartConfigs As Object
 Private partModels As Collection
-Private warnings As Collection
+Private warnings As Object
 Private audit As Collection
 Private pinnedViews As Collection
 Private stage As String
@@ -98,10 +98,9 @@ Public Sub main()
     Call FramePackageSupport.Require(UBound(names) - LBound(names) + 1 = 1 + 3 * taskCount, "Число листов не совпадает с числом рам.")
     drawingModel.GraphicsRedraw2
     If warnings.Count = 0 Then
-        MsgBox "выполнено успешно", vbInformation, VERSION
+        MsgBox "Успешно", vbInformation, VERSION
     Else
-        MsgBox "Чертёж создан: рам=" & completed & "; листов=" & 1 + 3 * completed & "." & vbCrLf & _
-            "Есть пропуски или предупреждения:" & vbCrLf & WarningText(), vbExclamation, VERSION
+        MsgBox "Проверьте листы:" & vbCrLf & Join(warnings.Keys, vbCrLf), vbExclamation, VERSION
     End If
     ClearReferences
     Exit Sub
@@ -130,7 +129,7 @@ Private Sub RepairDrawingView(ByVal host As SldWorks.SldWorks, ByVal model As Sl
     Set view = selection.GetSelectedObject6(1, -1)
     report = InsertWeldWithHoles.RepairSelectedBreakForPackage(host, model, view)
     If Len(report) = 0 Then
-        MsgBox "выполнено успешно", vbInformation, VERSION
+        MsgBox "Успешно", vbInformation, VERSION
     Else
         MsgBox report, vbExclamation, VERSION
     End If
@@ -150,7 +149,7 @@ Private Sub ResetState()
     Erase tasks: taskCount = 0: completed = 0: stage = "Инициализация": originalAssemblyConfig = "": originalDisplayState = "": overviewDisplayState = ""
     Set originalPartConfigs = CreateObject("Scripting.Dictionary")
     originalPartConfigs.CompareMode = vbTextCompare
-    Set partModels = New Collection: Set warnings = New Collection: Set audit = New Collection: Set pinnedViews = New Collection
+    Set partModels = New Collection: Set warnings = CreateObject("Scripting.Dictionary"): Set audit = New Collection: Set pinnedViews = New Collection
 End Sub
 
 Private Sub ClearReferences()
@@ -380,7 +379,8 @@ Private Sub BuildOverview(ByVal firstSheet As SldWorks.Sheet, ByVal width As Dou
     FramePackageSupport.ActivateSheet host, drawingModel, "Общий_вид"
     Set view = FramePackageSupport.StandardView(drawingModel, assemblyModel.GetPathName, originalAssemblyConfig, "ISO", "OVERVIEW")
     PinView view, overviewDisplayState
-    FramePackageSupport.FitView drawingModel, view, 0.03, 0.045, width - 0.01, height - 0.015
+    PlaceFixedScale view, 10#, width, height
+    CheckFixedView "Общий_вид", FramePackageSupport.ViewBox(view), width, height
 End Sub
 
 Private Sub BuildTask(ByVal index As Long, ByVal props As Variant, _
@@ -405,10 +405,10 @@ Private Sub BuildTask(ByVal index As Long, ByVal props As Variant, _
     PinView iso, tasks(index).DisplayState
     iso.ProjectedDimensions = False
     Call FramePackageSupport.Require(iso.ProjectedDimensions = False, "Не включён истинный режим длин на изометрии.")
-    FramePackageSupport.FitView drawingModel, iso, 0.045, 0.055, width - 0.045, height - 0.035
+    PlaceFixedScale iso, 8#, width, height
     warning = FrameCutListDimensionsV3.RunForPackage(host, drawingModel, iso, frame, count)
-    If Len(warning) > 0 Then warnings.Add sheetName & ": " & warning
-    FramePackageSupport.FitAnnotatedView drawingModel, iso, 0.03, 0.045, width - 0.01, height - 0.015
+    NoteSheetIssue sheetName, warning
+    CheckFixedView sheetName, FramePackageSupport.AnnotatedViewBox(iso), width, height
     FramePackageSupport.AuditCurrentSheet drawingModel, audit
     sheetName = sheetBase & "_Сверловка"
     stage = sheetName & ": деталь рамы и сверловка"
@@ -417,7 +417,7 @@ Private Sub BuildTask(ByVal index As Long, ByVal props As Variant, _
     FramePackageSupport.SetSheetScale drawingModel, 1#, 10#
     FramePackageSupport.SetScaleAndPlace drawingModel, drilling, 0.1, 0.03, 0.055
     warning = InsertWeldWithHoles.RunForPackage(host, drawingModel, drilling, count)
-    If Len(warning) > 0 Then warnings.Add sheetName & ": " & warning
+    NoteSheetIssue sheetName, warning
     FramePackageSupport.ActivateSheet host, drawingModel, sheetName
     FramePackageSupport.AuditCurrentSheet drawingModel, audit
     sheetName = sheetBase & "_Монтаж"
@@ -515,12 +515,30 @@ Failed:
     RestoreOneConfiguration = "Ошибка восстановления конфигурации: " & Err.Description & vbCrLf
 End Function
 
-Private Function WarningText() As String
-    Dim i As Long, text As String
-    For i = 1 To warnings.Count
-        Debug.Print CStr(warnings(i))
-        If i <= 8 Then text = text & CStr(warnings(i)) & vbCrLf
-    Next i
-    If warnings.Count > 8 Then text = text & "Полный список доступен в Immediate редактора VBA."
-    WarningText = text
-End Function
+Private Sub PlaceFixedScale(ByVal view As SldWorks.View, ByVal denominator As Double, _
+                             ByVal width As Double, ByVal height As Double)
+    Dim box As Variant, position As Variant
+    view.UseSheetScale = False
+    view.ScaleDecimal = 1# / denominator
+    drawingModel.EditRebuild3
+    box = FramePackageSupport.ViewBox(view)
+    position = view.Position
+    position(0) = position(0) + (0.03 + width - 0.01 - box(0) - box(2)) / 2#
+    position(1) = position(1) + (0.045 + height - 0.015 - box(1) - box(3)) / 2#
+    view.Position = position
+    drawingModel.EditRebuild3
+    Call FramePackageSupport.Require(Abs(view.ScaleDecimal - 1# / denominator) < 0.00000001, _
+        "Не подтверждён масштаб вида: " & view.GetName2)
+End Sub
+
+Private Sub NoteSheetIssue(ByVal sheetName As String, ByVal detail As String)
+    If Len(detail) = 0 Then Exit Sub
+    Debug.Print sheetName & ": " & detail
+    If Not warnings.Exists(sheetName) Then warnings.Add sheetName, True
+End Sub
+
+Private Sub CheckFixedView(ByVal sheetName As String, ByVal box As Variant, ByVal width As Double, ByVal height As Double)
+    If box(0) < 0.029 Or box(1) < 0.044 Or box(2) > width - 0.009 Or box(3) > height - 0.014 Then
+        NoteSheetIssue sheetName, "Вид или размеры выходят за рабочую область при заданном масштабе."
+    End If
+End Sub

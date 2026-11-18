@@ -1,5 +1,5 @@
 {
-  "version": "FrameDrawingPackage P2.5",
+  "version": "FrameDrawingPackage P2.6",
   "grammar": {
     "reports": [
       {
@@ -14,7 +14,7 @@
       },
       {
         "file": "FrameDrawingPackage.txt",
-        "sha256": "9d191ec549340060317d3476d050d5b11f9ea83acd6759dabac5c722fb5f1bf8",
+        "sha256": "a6db564c2dbe776a7102e023369849592116cee2f9b3ee7837e47b11efec3b23",
         "errors": []
       },
       {
@@ -24,7 +24,7 @@
       },
       {
         "file": "InsertWeldWithHoles.txt",
-        "sha256": "c8318cb725771a8ec06bb77a3555231b672b8093addebff6bd8790ba482ea177",
+        "sha256": "d860b75918f353a9fc9d5903bd81e9cc7fc14a5642709eb80301bc3a7eeb23a1",
         "errors": []
       }
     ],
@@ -37,9 +37,10 @@
     ],
     "file_output_statements": [],
     "embedded_and_supplied_cutlist_equal_ignoring_case": true,
-    "explicit_require_calls_checked": 104,
+    "explicit_require_calls_checked": 105,
     "cross_module_contracts_checked": true,
-    "isometry_fit_after_dimensions_checked": true,
+    "fixed_isometric_scales_checked": true,
+    "summary_lists_sheet_names_checked": true,
     "cutlist_matches_user_reference_outside_sheet_checked": true,
     "drill_arrangement_matches_user_reference_checked": true,
     "break_threshold_m": 0.9,
@@ -826,10 +827,10 @@
   },
   "source_sha256": {
     "FrameCutListDimensionsV3.txt": "d0171e3ba398430023bc26ed0cb40524529c5cf3b6557f33a2a14b8f8baa5350",
-    "FrameDrawingPackage.txt": "9d191ec549340060317d3476d050d5b11f9ea83acd6759dabac5c722fb5f1bf8",
+    "FrameDrawingPackage.txt": "a6db564c2dbe776a7102e023369849592116cee2f9b3ee7837e47b11efec3b23",
     "FrameAutoSize.txt": "3f1b508e05f1231ee49d7e80d439a0175107a4fb384fb3152d5b07a7dfee55f8",
     "FramePackageSupport.txt": "434ec63ce632020ed5b8c699ae16af7a69f227b1ccf7fc7ff2d4e0102f3e3078",
-    "InsertWeldWithHoles.txt": "c8318cb725771a8ec06bb77a3555231b672b8093addebff6bd8790ba482ea177"
+    "InsertWeldWithHoles.txt": "d860b75918f353a9fc9d5903bd81e9cc7fc14a5642709eb80301bc3a7eeb23a1"
   },
   "internal_network_template_path_removed": true,
   "corporate_cutlist_template": "Set TABLE_TEMPLATE locally in your SWP; standard installed template lookup retained",
