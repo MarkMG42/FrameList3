@@ -1,7 +1,7 @@
 Attribute VB_Name = "FrameDrawingPackage"
 Option Explicit
 
-Private Const VERSION As String = "FrameDrawingPackage P2.6"
+Private Const VERSION As String = "FrameDrawingPackage P2.7"
 Private Const DRAWING_TEMPLATE As String = ""
 Private Const FRAME_TOKEN As String = "рама"
 Private Type FrameTask
@@ -100,6 +100,7 @@ Public Sub main()
     If warnings.Count = 0 Then
         MsgBox "Успешно", vbInformation, VERSION
     Else
+        PrintSheetIssues
         MsgBox "Проверьте листы:" & vbCrLf & Join(warnings.Keys, vbCrLf), vbExclamation, VERSION
     End If
     ClearReferences
@@ -379,7 +380,7 @@ Private Sub BuildOverview(ByVal firstSheet As SldWorks.Sheet, ByVal width As Dou
     FramePackageSupport.ActivateSheet host, drawingModel, "Общий_вид"
     Set view = FramePackageSupport.StandardView(drawingModel, assemblyModel.GetPathName, originalAssemblyConfig, "ISO", "OVERVIEW")
     PinView view, overviewDisplayState
-    PlaceFixedScale view, 10#, width, height
+    PlaceFixedScale view, 12#, width, height
     CheckFixedView "Общий_вид", FramePackageSupport.ViewBox(view), width, height
 End Sub
 
@@ -533,12 +534,23 @@ End Sub
 
 Private Sub NoteSheetIssue(ByVal sheetName As String, ByVal detail As String)
     If Len(detail) = 0 Then Exit Sub
-    Debug.Print sheetName & ": " & detail
-    If Not warnings.Exists(sheetName) Then warnings.Add sheetName, True
+    If warnings.Exists(sheetName) Then
+        warnings(sheetName) = CStr(warnings(sheetName)) & " | " & Replace(detail, vbCrLf, " | ")
+    Else
+        warnings.Add sheetName, Replace(detail, vbCrLf, " | ")
+    End If
 End Sub
 
 Private Sub CheckFixedView(ByVal sheetName As String, ByVal box As Variant, ByVal width As Double, ByVal height As Double)
     If box(0) < 0.029 Or box(1) < 0.044 Or box(2) > width - 0.009 Or box(3) > height - 0.014 Then
         NoteSheetIssue sheetName, "Вид или размеры выходят за рабочую область при заданном масштабе."
     End If
+End Sub
+
+Private Sub PrintSheetIssues()
+    Dim sheetName As Variant
+    Debug.Print "Причины проверки листов"
+    For Each sheetName In warnings.Keys
+        Debug.Print CStr(sheetName) & ": " & CStr(warnings(sheetName))
+    Next sheetName
 End Sub

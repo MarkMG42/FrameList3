@@ -1,5 +1,5 @@
 {
-  "version": "FrameDrawingPackage P2.6",
+  "version": "FrameDrawingPackage P2.7",
   "grammar": {
     "reports": [
       {
@@ -14,7 +14,7 @@
       },
       {
         "file": "FrameDrawingPackage.txt",
-        "sha256": "a6db564c2dbe776a7102e023369849592116cee2f9b3ee7837e47b11efec3b23",
+        "sha256": "ae66ccb6695c91c3fbc402fe10fc6e2afdf98ad44c185fcedf04a3ddedcd2920",
         "errors": []
       },
       {
@@ -827,7 +827,7 @@
   },
   "source_sha256": {
     "FrameCutListDimensionsV3.txt": "d0171e3ba398430023bc26ed0cb40524529c5cf3b6557f33a2a14b8f8baa5350",
-    "FrameDrawingPackage.txt": "a6db564c2dbe776a7102e023369849592116cee2f9b3ee7837e47b11efec3b23",
+    "FrameDrawingPackage.txt": "ae66ccb6695c91c3fbc402fe10fc6e2afdf98ad44c185fcedf04a3ddedcd2920",
     "FrameAutoSize.txt": "3f1b508e05f1231ee49d7e80d439a0175107a4fb384fb3152d5b07a7dfee55f8",
     "FramePackageSupport.txt": "434ec63ce632020ed5b8c699ae16af7a69f227b1ccf7fc7ff2d4e0102f3e3078",
     "InsertWeldWithHoles.txt": "d860b75918f353a9fc9d5903bd81e9cc7fc14a5642709eb80301bc3a7eeb23a1"
