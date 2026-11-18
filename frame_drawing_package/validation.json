@@ -1,10 +1,10 @@
 {
-  "version": "FrameDrawingPackage P2.7",
+  "version": "FrameDrawingPackage P2.8",
   "grammar": {
     "reports": [
       {
         "file": "FrameAutoSize.txt",
-        "sha256": "3f1b508e05f1231ee49d7e80d439a0175107a4fb384fb3152d5b07a7dfee55f8",
+        "sha256": "997e03730be218eb0dceb7205445842db81fcc0132d91b7dc367b91ee3738063",
         "errors": []
       },
       {
@@ -14,7 +14,7 @@
       },
       {
         "file": "FrameDrawingPackage.txt",
-        "sha256": "ae66ccb6695c91c3fbc402fe10fc6e2afdf98ad44c185fcedf04a3ddedcd2920",
+        "sha256": "27be6c970d04c867eaf3585be33f8ec71469caaf13816ce7372ff6004f5a828f",
         "errors": []
       },
       {
@@ -45,7 +45,7 @@
     "drill_arrangement_matches_user_reference_checked": true,
     "break_threshold_m": 0.9,
     "top_slotted_tubes_filter_checked": true,
-    "existing_top_front_dimension_rules_preserved": true,
+    "top_tube_support_extension_checked": true,
     "break_recheck_after_move_uses_bore_identity": true,
     "selected_view_break_repair_preserves_existing_dimensions_checked": true,
     "break_coordinate_retries_with_verified_rollback_checked": true,
@@ -827,8 +827,8 @@
   },
   "source_sha256": {
     "FrameCutListDimensionsV3.txt": "d0171e3ba398430023bc26ed0cb40524529c5cf3b6557f33a2a14b8f8baa5350",
-    "FrameDrawingPackage.txt": "ae66ccb6695c91c3fbc402fe10fc6e2afdf98ad44c185fcedf04a3ddedcd2920",
-    "FrameAutoSize.txt": "3f1b508e05f1231ee49d7e80d439a0175107a4fb384fb3152d5b07a7dfee55f8",
+    "FrameDrawingPackage.txt": "27be6c970d04c867eaf3585be33f8ec71469caaf13816ce7372ff6004f5a828f",
+    "FrameAutoSize.txt": "997e03730be218eb0dceb7205445842db81fcc0132d91b7dc367b91ee3738063",
     "FramePackageSupport.txt": "434ec63ce632020ed5b8c699ae16af7a69f227b1ccf7fc7ff2d4e0102f3e3078",
     "InsertWeldWithHoles.txt": "d860b75918f353a9fc9d5903bd81e9cc7fc14a5642709eb80301bc3a7eeb23a1"
   },

@@ -3,7 +3,7 @@ Option Explicit
 
 ' FrameAutoSize package P2.3; native SolidWorks test required.
 ' Standard references: SolidWorks type library and constant type library.
-Private Const VERSION As String = "FrameAutoSize Package P2.3"
+Private Const VERSION As String = "FrameAutoSize Package P2.8"
 Private Const FRAME_NAME As String = "рама"
 Private Const TOP_OVERALL_WIDTH As Boolean = True
 Private Const MODEL_TOL As Double = 0.00005
@@ -29,6 +29,11 @@ Private Type MemberInfo
     AxisX As Double
     AxisY As Double
     AxisZ As Double
+    MinZ As Double
+    MaxZ As Double
+    CarriesTubePost As Boolean
+    PostXLocatedByChannel As Boolean
+    PostYLocatedByChannel As Boolean
     SlotChecked As Boolean
     HasSlot As Boolean
 End Type
@@ -790,6 +795,7 @@ Private Sub BuildPlan(ByVal mode As String)
         Next i
     ElseIf mode = "TOP" Then
         bands = TopBands(tol)
+        MarkTopPostSupports bands, tol
         WriteLog "DATUM TOP left/bottom sheet mm=" & CStr(leftX * 1000#) & "," & CStr(bottomY * 1000#)
         WriteLog "TOP inner perimeter sheet mm=" & CStr(bands(0) * 1000#) & "; " & CStr(bands(1) * 1000#) & _
             "; " & CStr(bands(2) * 1000#) & "; " & CStr(bands(3) * 1000#)
@@ -852,24 +858,105 @@ Private Function FindFrontStation(ByVal target As Long, ByVal tolerance As Doubl
 End Function
 
 Private Function TopNeedsRearY(ByVal index As Long, ByVal tolerance As Double) As Boolean
-    Dim text As String, word As Variant
     If members(index).Direction <> "X" Then Exit Function
     If members(index).MinY <= bottomY + tolerance Then Exit Function
+    If IsChannelMember(index) Then TopNeedsRearY = True: Exit Function
+    If members(index).CarriesTubePost Then TopNeedsRearY = True: Exit Function
+    If IsTubeMember(index) Then
+        If members(index).SlotChecked = False Then
+            members(index).HasSlot = HasPlanarSlot(index)
+            members(index).SlotChecked = True
+            WriteLog "TOP SLOT body=" & members(index).Label & "; capsule=" & members(index).HasSlot
+        End If
+        TopNeedsRearY = members(index).HasSlot
+    End If
+End Function
+
+Private Function IsTubeMember(ByVal index As Long) As Boolean
+    Dim text As String, word As Variant
+    text = LCase$(members(index).Metadata & " " & members(index).Label)
+    For Each word In Array("труб", "tube", "pipe", "rhs", "shs")
+        If InStr(text, CStr(word)) > 0 Then IsTubeMember = True: Exit Function
+    Next word
+End Function
+
+Private Function IsChannelMember(ByVal index As Long) As Boolean
+    Dim text As String, word As Variant
     text = LCase$(members(index).Metadata & " " & members(index).Label)
     For Each word In Array("швеллер", "швелер", "channel", "upn")
-        If InStr(text, CStr(word)) > 0 Then TopNeedsRearY = True: Exit Function
+        If InStr(text, CStr(word)) > 0 Then IsChannelMember = True: Exit Function
     Next word
-    For Each word In Array("труб", "tube", "pipe", "rhs", "shs")
-        If InStr(text, CStr(word)) > 0 Then
-            If members(index).SlotChecked = False Then
-                members(index).HasSlot = HasPlanarSlot(index)
-                members(index).SlotChecked = True
-                WriteLog "TOP SLOT body=" & members(index).Label & "; capsule=" & members(index).HasSlot
-            End If
-            TopNeedsRearY = members(index).HasSlot
-            Exit Function
+End Function
+
+Private Sub MarkTopPostSupports(ByVal bands As Variant, ByVal tolerance As Double)
+    Dim rails As Collection, posts As Collection
+    Dim rail As Variant, post As Variant, i As Long, postIndex As Long, channel As Boolean
+    Set rails = New Collection: Set posts = New Collection
+    For i = 1 To memberCount
+        If TopEligible(i) Then
+            Select Case members(i).Direction
+                Case "X"
+                    If (IsTubeMember(i) Or IsChannelMember(i)) And members(i).MinY > bottomY + tolerance Then rails.Add i
+                Case "Y"
+                    If IsChannelMember(i) And TopNeedsX(i, bands, tolerance) Then rails.Add i
+                Case "Z"
+                    If IsTubeMember(i) Then posts.Add i
+            End Select
         End If
-    Next word
+    Next i
+    If posts.Count = 0 Or rails.Count = 0 Then Exit Sub
+    For Each post In posts
+        i = CLng(post)
+        members(i).MinZ = Support(i, 2, -1#)
+        members(i).MaxZ = Support(i, 2, 1#)
+    Next post
+    For Each rail In rails
+        i = CLng(rail)
+        members(i).MinZ = Support(i, 2, -1#)
+        members(i).MaxZ = Support(i, 2, 1#)
+        channel = IsChannelMember(i)
+        For Each post In posts
+            postIndex = CLng(post)
+            If TopPostFootMeetsRail(members(postIndex), members(i), tolerance) Then
+                If channel Then
+                    If members(i).Direction = "Y" Then
+                        members(postIndex).PostXLocatedByChannel = True
+                    Else
+                        members(postIndex).PostYLocatedByChannel = True
+                    End If
+                Else
+                    members(i).CarriesTubePost = True
+                End If
+                WriteLog "TOP опора стойки: " & members(i).Label & " <- " & members(postIndex).Label
+            End If
+        Next post
+    Next rail
+End Sub
+
+Private Function OverlapLength(ByVal firstMin As Double, ByVal firstMax As Double, _
+                               ByVal secondMin As Double, ByVal secondMax As Double) As Double
+    If secondMin > firstMin Then firstMin = secondMin
+    If secondMax < firstMax Then firstMax = secondMax
+    OverlapLength = firstMax - firstMin
+End Function
+
+Private Function TopPostFootMeetsRail(ByRef post As MemberInfo, ByRef rail As MemberInfo, _
+                                      ByVal tolerance As Double) As Boolean
+    Dim xOverlap As Double, yOverlap As Double, zOverlap As Double
+    xOverlap = OverlapLength(post.MinX, post.MaxX, rail.MinX, rail.MaxX)
+    yOverlap = OverlapLength(post.MinY, post.MaxY, rail.MinY, rail.MaxY)
+    If xOverlap < -tolerance Or yOverlap < -tolerance Then Exit Function
+    ' The foot meets the upper face of the horizontal member.
+    If Abs(post.MinZ - rail.MaxZ) <= tolerance Then
+        TopPostFootMeetsRail = (xOverlap > tolerance And yOverlap > tolerance)
+        Exit Function
+    End If
+    ' An adjacent upright may attach to a side of the member at its foot.
+    If post.MinZ < rail.MinZ - tolerance Or post.MinZ > rail.MaxZ + tolerance Then Exit Function
+    zOverlap = OverlapLength(post.MinZ, post.MaxZ, rail.MinZ, rail.MaxZ)
+    If zOverlap <= tolerance Then Exit Function
+    TopPostFootMeetsRail = (Abs(xOverlap) <= tolerance And yOverlap > tolerance) Or _
+                          (Abs(yOverlap) <= tolerance And xOverlap > tolerance)
 End Function
 
 Private Function HasPlanarSlot(ByVal index As Long) As Boolean
@@ -1014,11 +1101,13 @@ End Function
 
 Private Function TopNeedsX(ByVal index As Long, ByVal bands As Variant, ByVal tolerance As Double) As Boolean
     If members(index).Direction <> "Y" And members(index).Direction <> "Z" Then Exit Function
+    If members(index).PostXLocatedByChannel Then Exit Function
     TopNeedsX = (members(index).MinX > bands(0) + tolerance And members(index).MaxX < bands(1) - tolerance)
 End Function
 
 Private Function TopNeedsY(ByVal index As Long, ByVal bands As Variant, ByVal tolerance As Double) As Boolean
     If members(index).Direction <> "Z" Then Exit Function
+    If members(index).PostYLocatedByChannel Then Exit Function
     TopNeedsY = (members(index).MinY > bands(2) + tolerance And members(index).MaxY < bands(3) - tolerance)
 End Function
 
