@@ -3,7 +3,7 @@ Option Explicit
 
 ' FrameAutoSize package P2.3; native SolidWorks test required.
 ' Standard references: SolidWorks type library and constant type library.
-Private Const VERSION As String = "FrameAutoSize Package P2.8"
+Private Const VERSION As String = "FrameAutoSize Package P2.9"
 Private Const FRAME_NAME As String = "рама"
 Private Const TOP_OVERALL_WIDTH As Boolean = True
 Private Const MODEL_TOL As Double = 0.00005
@@ -889,9 +889,9 @@ Private Function IsChannelMember(ByVal index As Long) As Boolean
 End Function
 
 Private Sub MarkTopPostSupports(ByVal bands As Variant, ByVal tolerance As Double)
-    Dim rails As Collection, posts As Collection
+    Dim rails As Collection, posts As Collection, shortTubes As Collection
     Dim rail As Variant, post As Variant, i As Long, postIndex As Long, channel As Boolean
-    Set rails = New Collection: Set posts = New Collection
+    Set rails = New Collection: Set posts = New Collection: Set shortTubes = New Collection
     For i = 1 To memberCount
         If TopEligible(i) Then
             Select Case members(i).Direction
@@ -899,12 +899,15 @@ Private Sub MarkTopPostSupports(ByVal bands As Variant, ByVal tolerance As Doubl
                     If (IsTubeMember(i) Or IsChannelMember(i)) And members(i).MinY > bottomY + tolerance Then rails.Add i
                 Case "Y"
                     If IsChannelMember(i) And TopNeedsX(i, bands, tolerance) Then rails.Add i
+                    If IsTubeMember(i) And TopNeedsX(i, bands, tolerance) Then
+                        If IsShortSquareTubeInTop(i, tolerance) Then shortTubes.Add i
+                    End If
                 Case "Z"
                     If IsTubeMember(i) Then posts.Add i
             End Select
         End If
     Next i
-    If posts.Count = 0 Or rails.Count = 0 Then Exit Sub
+    If rails.Count = 0 Or (posts.Count = 0 And shortTubes.Count = 0) Then Exit Sub
     For Each post In posts
         i = CLng(post)
         members(i).MinZ = Support(i, 2, -1#)
@@ -915,6 +918,15 @@ Private Sub MarkTopPostSupports(ByVal bands As Variant, ByVal tolerance As Doubl
         members(i).MinZ = Support(i, 2, -1#)
         members(i).MaxZ = Support(i, 2, 1#)
         channel = IsChannelMember(i)
+        If channel And members(i).Direction = "Y" Then
+            For Each post In shortTubes
+                postIndex = CLng(post)
+                If ShortTubeTouchesChannelInTop(members(postIndex), members(i), tolerance) Then
+                    members(postIndex).PostXLocatedByChannel = True
+                    WriteLog "TOP X задан швеллером: " & members(i).Label & " <- " & members(postIndex).Label
+                End If
+            Next post
+        End If
         For Each post In posts
             postIndex = CLng(post)
             If TopPostFootMeetsRail(members(postIndex), members(i), tolerance) Then
@@ -932,6 +944,21 @@ Private Sub MarkTopPostSupports(ByVal bands As Variant, ByVal tolerance As Doubl
         Next post
     Next rail
 End Sub
+
+Private Function IsShortSquareTubeInTop(ByVal index As Long, ByVal tolerance As Double) As Boolean
+    Dim lengthOnSheet As Double
+    lengthOnSheet = members(index).CutLength * viewScale
+    If lengthOnSheet <= tolerance Then Exit Function
+    IsShortSquareTubeInTop = (Abs(members(index).MaxX - members(index).MinX - lengthOnSheet) <= tolerance) And _
+                             (Abs(members(index).MaxY - members(index).MinY - lengthOnSheet) <= tolerance)
+End Function
+
+Private Function ShortTubeTouchesChannelInTop(ByRef tube As MemberInfo, ByRef channel As MemberInfo, _
+                                               ByVal tolerance As Double) As Boolean
+    If tube.MinY < channel.MinY - tolerance Or tube.MaxY > channel.MaxY + tolerance Then Exit Function
+    ShortTubeTouchesChannelInTop = (Abs(tube.MaxX - channel.MinX) <= tolerance) Or _
+                                   (Abs(tube.MinX - channel.MaxX) <= tolerance)
+End Function
 
 Private Function OverlapLength(ByVal firstMin As Double, ByVal firstMax As Double, _
                                ByVal secondMin As Double, ByVal secondMax As Double) As Double

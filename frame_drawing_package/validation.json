@@ -1,10 +1,10 @@
 {
-  "version": "FrameDrawingPackage P2.8",
+  "version": "FrameDrawingPackage P2.9",
   "grammar": {
     "reports": [
       {
         "file": "FrameAutoSize.txt",
-        "sha256": "997e03730be218eb0dceb7205445842db81fcc0132d91b7dc367b91ee3738063",
+        "sha256": "0a82d1378de982babf474515c2f275b93bdfff87497c8f352ae77e9062d23e90",
         "errors": []
       },
       {
@@ -14,7 +14,7 @@
       },
       {
         "file": "FrameDrawingPackage.txt",
-        "sha256": "27be6c970d04c867eaf3585be33f8ec71469caaf13816ce7372ff6004f5a828f",
+        "sha256": "99bade85abcd3efdd8ed8c58e2494e215ea26906958a7d3d4f624444082830ea",
         "errors": []
       },
       {
@@ -24,7 +24,7 @@
       },
       {
         "file": "InsertWeldWithHoles.txt",
-        "sha256": "d860b75918f353a9fc9d5903bd81e9cc7fc14a5642709eb80301bc3a7eeb23a1",
+        "sha256": "711e9118f7df67993327c150f676c7a045d7825e0af66716c53be9289cd0ff42",
         "errors": []
       }
     ],
@@ -40,7 +40,7 @@
     "explicit_require_calls_checked": 105,
     "cross_module_contracts_checked": true,
     "fixed_isometric_scales_checked": true,
-    "summary_lists_sheet_names_checked": true,
+    "silent_layout_warnings_checked": true,
     "cutlist_matches_user_reference_outside_sheet_checked": true,
     "drill_arrangement_matches_user_reference_checked": true,
     "break_threshold_m": 0.9,
@@ -827,10 +827,10 @@
   },
   "source_sha256": {
     "FrameCutListDimensionsV3.txt": "d0171e3ba398430023bc26ed0cb40524529c5cf3b6557f33a2a14b8f8baa5350",
-    "FrameDrawingPackage.txt": "27be6c970d04c867eaf3585be33f8ec71469caaf13816ce7372ff6004f5a828f",
-    "FrameAutoSize.txt": "997e03730be218eb0dceb7205445842db81fcc0132d91b7dc367b91ee3738063",
+    "FrameDrawingPackage.txt": "99bade85abcd3efdd8ed8c58e2494e215ea26906958a7d3d4f624444082830ea",
+    "FrameAutoSize.txt": "0a82d1378de982babf474515c2f275b93bdfff87497c8f352ae77e9062d23e90",
     "FramePackageSupport.txt": "434ec63ce632020ed5b8c699ae16af7a69f227b1ccf7fc7ff2d4e0102f3e3078",
-    "InsertWeldWithHoles.txt": "d860b75918f353a9fc9d5903bd81e9cc7fc14a5642709eb80301bc3a7eeb23a1"
+    "InsertWeldWithHoles.txt": "711e9118f7df67993327c150f676c7a045d7825e0af66716c53be9289cd0ff42"
   },
   "internal_network_template_path_removed": true,
   "corporate_cutlist_template": "Set TABLE_TEMPLATE locally in your SWP; standard installed template lookup retained",

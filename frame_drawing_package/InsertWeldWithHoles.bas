@@ -2,7 +2,7 @@ Attribute VB_Name = "InsertWeldWithHoles"
 Option Explicit
 
 ' Replace ONLY this module in the ORIGINAL working SWP; entry point: start.
-Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R35_CHANNEL_LENGTH_PACKAGE_P26"
+Private Const BUILD_ID As String = "DRILL_COPY_VIEW_R35_CHANNEL_LENGTH_PACKAGE_P29"
 Private Const VERBOSE_VIEW_SNAPSHOTS As Boolean = False
 Private Const AUTO_DIMENSIONS As Boolean = True
 Private Const ADD_BALLOONS As Boolean = True
@@ -110,11 +110,12 @@ Private packageWarning As String
 Private packageCreated As Long
 
 Public Function RunForPackage(ByVal host As SldWorks.SldWorks, ByVal targetDrawing As SldWorks.ModelDoc2, _
-                              ByVal sourceView As SldWorks.View, ByRef detailCount As Long) As String
+                              ByVal sourceView As SldWorks.View, ByRef detailCount As Long, _
+                              Optional ByRef incomplete As Boolean = False) As String
     On Error GoTo Failed
     Set packageApp = host: Set packageDrawing = targetDrawing: Set packageSource = sourceView
     packageWarning = "": packageCreated = 0
-    RunCore
+    RunCore incomplete
     detailCount = packageCreated
     RunForPackage = packageWarning
     ClearPackageContext
@@ -211,7 +212,7 @@ Private Sub ClearPackageContext()
     Set packageApp = Nothing: Set packageDrawing = Nothing: Set packageSource = Nothing
 End Sub
 
-Private Sub RunCore()
+Private Sub RunCore(ByRef incomplete As Boolean)
     Dim source As SldWorks.View, sheet As SldWorks.Sheet
     Dim config As String, message As String, cleanup As String, errorText As String
     Dim tableTemplate As String, tableWarning As String
@@ -440,6 +441,8 @@ Finished:
     Else
         hasPartialErrors = True
     End If
+    incomplete = Not runCompleted Or dimensionsFailed > 0 Or skipped.Count > 0 Or dimensionWarnings.Count > 0
+    If ADD_BALLOONS Then incomplete = incomplete Or sourceBalloonsFailed > 0 Or balloonsFailed > 0
     If hasPartialErrors Or hasOtherWarnings Then packageWarning = message
 End Sub
 

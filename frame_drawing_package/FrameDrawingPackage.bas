@@ -1,7 +1,7 @@
 Attribute VB_Name = "FrameDrawingPackage"
 Option Explicit
 
-Private Const VERSION As String = "FrameDrawingPackage P2.8"
+Private Const VERSION As String = "FrameDrawingPackage P2.9"
 Private Const DRAWING_TEMPLATE As String = ""
 Private Const FRAME_TOKEN As String = "рама"
 Private Type FrameTask
@@ -22,6 +22,7 @@ Private overviewDisplayState As String
 Private originalPartConfigs As Object
 Private partModels As Collection
 Private warnings As Object
+Private incompleteOutput As Boolean
 Private audit As Collection
 Private pinnedViews As Collection
 Private stage As String
@@ -97,12 +98,8 @@ Public Sub main()
     names = drawing.GetSheetNames
     Call FramePackageSupport.Require(UBound(names) - LBound(names) + 1 = 1 + 3 * taskCount, "Число листов не совпадает с числом рам.")
     drawingModel.GraphicsRedraw2
-    If warnings.Count = 0 Then
-        MsgBox "Успешно", vbInformation, VERSION
-    Else
-        PrintSheetIssues
-        MsgBox "Проверьте листы:" & vbCrLf & Join(warnings.Keys, vbCrLf), vbExclamation, VERSION
-    End If
+    If warnings.Count > 0 Then PrintSheetIssues
+    If Not incompleteOutput Then MsgBox "Успешно", vbInformation, VERSION
     ClearReferences
     Exit Sub
 Failed:
@@ -150,6 +147,7 @@ Private Sub ResetState()
     Erase tasks: taskCount = 0: completed = 0: stage = "Инициализация": originalAssemblyConfig = "": originalDisplayState = "": overviewDisplayState = ""
     Set originalPartConfigs = CreateObject("Scripting.Dictionary")
     originalPartConfigs.CompareMode = vbTextCompare
+    incompleteOutput = False
     Set partModels = New Collection: Set warnings = CreateObject("Scripting.Dictionary"): Set audit = New Collection: Set pinnedViews = New Collection
 End Sub
 
@@ -388,6 +386,7 @@ Private Sub BuildTask(ByVal index As Long, ByVal props As Variant, _
                       ByVal sheetFormat As String, ByVal width As Double, ByVal height As Double)
     Dim frame As SldWorks.Component2, part As SldWorks.ModelDoc2, drawing As SldWorks.DrawingDoc
     Dim iso As SldWorks.View, drilling As SldWorks.View, front As SldWorks.View, top As SldWorks.View
+    Dim drillingIncomplete As Boolean
     Dim sheetName As String, prefix As String, sheetBase As String, warning As String, count As Long, dimensions As Long
     prefix = "F" & Format$(index, "000")
     sheetBase = prefix & "_" & FrameHint(tasks(index).PartPath)
@@ -408,6 +407,7 @@ Private Sub BuildTask(ByVal index As Long, ByVal props As Variant, _
     Call FramePackageSupport.Require(iso.ProjectedDimensions = False, "Не включён истинный режим длин на изометрии.")
     PlaceFixedScale iso, 8#, width, height
     warning = FrameCutListDimensionsV3.RunForPackage(host, drawingModel, iso, frame, count)
+    If Len(warning) > 0 Then incompleteOutput = True
     NoteSheetIssue sheetName, warning
     CheckFixedView sheetName, FramePackageSupport.AnnotatedViewBox(iso), width, height
     FramePackageSupport.AuditCurrentSheet drawingModel, audit
@@ -417,7 +417,8 @@ Private Sub BuildTask(ByVal index As Long, ByVal props As Variant, _
     Set drilling = FramePackageSupport.StandardView(drawingModel, tasks(index).PartPath, tasks(index).PartConfig, "ISO", prefix & "_DRILL_SOURCE")
     FramePackageSupport.SetSheetScale drawingModel, 1#, 10#
     FramePackageSupport.SetScaleAndPlace drawingModel, drilling, 0.1, 0.03, 0.055
-    warning = InsertWeldWithHoles.RunForPackage(host, drawingModel, drilling, count)
+    warning = InsertWeldWithHoles.RunForPackage(host, drawingModel, drilling, count, drillingIncomplete)
+    If drillingIncomplete Then incompleteOutput = True
     NoteSheetIssue sheetName, warning
     FramePackageSupport.ActivateSheet host, drawingModel, sheetName
     FramePackageSupport.AuditCurrentSheet drawingModel, audit
