@@ -21,11 +21,11 @@ Public Sub main()
     Set drw = doc
     Set sheet = drw.GetCurrentSheet
     sheet.GetSize w, h
-    Set front = drw.CreateDrawViewFromModelView3(path, "*Front", w * 0.68, h * 0.53, 0#)
-    If front Is Nothing Then Err.Raise 5, , "Front view creation failed."
+    Set front = InsertStandardView(drw, path, w * 0.68, h * 0.53, _
+        Array("*Front", "*" & ChrW(1057) & ChrW(1087) & ChrW(1077) & ChrW(1088) & ChrW(1077) & ChrW(1076) & ChrW(1080)))
     front.ReferencedConfiguration = config
-    Set iso = drw.CreateDrawViewFromModelView3(path, "*Isometric", w * 0.24, h * 0.53, 0#)
-    If iso Is Nothing Then Err.Raise 5, , "Isometric view creation failed."
+    Set iso = InsertStandardView(drw, path, w * 0.24, h * 0.53, _
+        Array("*Isometric", "*" & ChrW(1048) & ChrW(1079) & ChrW(1086) & ChrW(1084) & ChrW(1077) & ChrW(1090) & ChrW(1088) & ChrW(1080) & ChrW(1103)))
     iso.ReferencedConfiguration = config
     doc.EditRebuild3
     AddPipeDimensions sw, doc, front
@@ -33,6 +33,23 @@ Public Sub main()
 Failed:
     MsgBox Err.Description, vbExclamation, "PipeDrawing"
 End Sub
+
+Private Function InsertStandardView(ByVal drawing As SldWorks.DrawingDoc, ByVal modelPath As String, _
+                                    ByVal x As Double, ByVal y As Double, ByVal names As Variant) As SldWorks.View
+    Dim orientation As Variant, candidate As SldWorks.View, detail As String
+    For Each orientation In names
+        On Error Resume Next
+        Err.Clear
+        Set candidate = drawing.CreateDrawViewFromModelView3(modelPath, CStr(orientation), x, y, 0#)
+        If Err.Number <> 0 Then detail = Err.Description
+        On Error GoTo 0
+        If Not candidate Is Nothing Then
+            Set InsertStandardView = candidate
+            Exit Function
+        End If
+    Next
+    Err.Raise vbObjectError + 201, "PipeDrawing", "Cannot insert view: " & Join(names, " / ") & vbCrLf & modelPath & vbCrLf & detail
+End Function
 
 Private Function PartKind(ByVal c As SldWorks.Component2) As String
     Dim n As String
