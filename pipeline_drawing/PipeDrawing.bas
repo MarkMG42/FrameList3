@@ -96,13 +96,13 @@ Private Function EndRing(ByVal rings As Collection, ByVal seed As Collection, By
     Set EndRing = best
 End Function
 
-Private Function FlangeEnd(ByVal rings As Collection, ByVal pipeEnd As Collection, ByVal axis As String, ByVal cross As String, ByVal scale As Double) As Collection
+Private Function FlangeEnd(ByVal rings As Collection, ByVal pipeEnd As Collection, ByVal axis As String, ByVal cross As String, ByVal viewScale As Double) As Collection
     Dim r As Collection, nearest As Collection, gap As Double, best As Double
     best = 1E+10
     For Each r In rings
         If r("kind") = "flange" Then
             gap = r(axis) - pipeEnd(axis)
-            If Abs(r(cross) - pipeEnd(cross)) < 0.0002 * scale And gap >= -0.0002 * scale And gap < best Then
+            If Abs(r(cross) - pipeEnd(cross)) < 0.0002 * viewScale And gap >= -0.0002 * viewScale And gap < best Then
                 best = gap
                 Set nearest = r
             End If
@@ -111,7 +111,7 @@ Private Function FlangeEnd(ByVal rings As Collection, ByVal pipeEnd As Collectio
     If nearest Is Nothing Then Exit Function
     ' Ignore bolt-hole circles when looking for the mating face.
     For Each r In rings
-        If r("component") = nearest("component") And Abs(r(cross) - pipeEnd(cross)) < 0.0002 * scale Then
+        If r("component") = nearest("component") And Abs(r(cross) - pipeEnd(cross)) < 0.0002 * viewScale Then
             If r(axis) > nearest(axis) Then Set nearest = r
         End If
     Next
