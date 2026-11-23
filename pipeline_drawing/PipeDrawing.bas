@@ -3,7 +3,7 @@ Option Explicit
 
 Private stage As String
 Private dimFailure As String
-Private Const revision As String = "1.9"
+Private Const revision As String = "2.0"
 
 Private Function HasItems(ByVal values As Variant) As Boolean
     On Error GoTo EmptyArray
@@ -168,6 +168,7 @@ Private Sub AddPipeDimensions(ByVal sw As SldWorks.SldWorks, ByVal doc As SldWor
                         xyz = pt.ArrayData
                         Set r = New Collection
                         r.Add e, "edge"
+                        r.Add placement, "placement"
                         If Not sourceComponent Is Nothing Then r.Add sourceComponent, "occurrence"
                         r.Add CDbl(xyz(0)), "x"
                         r.Add CDbl(xyz(1)), "y"
@@ -212,21 +213,54 @@ Private Function FlangeEnd(ByVal rings As Collection, ByVal pipeEnd As Collectio
         End If
     Next
     If nearest Is Nothing Then Exit Function
-    ' Ignore bolt-hole circles when looking for the mating face.
+    ' The example dimensions terminate at the outer rim of the flange disk.
+    ' A smaller raised sealing face can project beyond that rim.
+    Dim outerRim As Collection
     For Each r In rings
         If r("component") = nearest("component") And Abs(r("z") - pipeEnd("z")) < 0.0002 * viewScale And Abs(r(cross) - pipeEnd(cross)) < 0.0002 * viewScale Then
-            If r(axis) > nearest(axis) Then Set nearest = r
+            If outerRim Is Nothing Then Set outerRim = r
+            If r("radius") > outerRim("radius") + 0.000001 Then
+                Set outerRim = r
+            ElseIf Abs(r("radius") - outerRim("radius")) <= 0.000001 Then
+                If r(axis) > outerRim(axis) Then Set outerRim = r
+            End If
         End If
     Next
-    Set FlangeEnd = nearest
+    Set FlangeEnd = outerRim
+End Function
+
+Private Function StationVertex(ByVal ring As Collection, ByVal axis As String, ByVal v As SldWorks.View) As SldWorks.Vertex
+    Dim edge As SldWorks.Edge, vertex As SldWorks.Vertex, placement As SldWorks.MathTransform
+    Dim app As SldWorks.SldWorks, math As SldWorks.MathUtility, pt As SldWorks.MathPoint
+    Dim i As Long, idx As Long, coords As Variant
+    Set app = Application.SldWorks
+    Set math = app.GetMathUtility
+    Set edge = ring("edge")
+    Set placement = ring("placement")
+    If axis = "y" Then idx = 1
+    For i = 1 To 2
+        If i = 1 Then Set vertex = edge.GetStartVertex Else Set vertex = edge.GetEndVertex
+        If Not vertex Is Nothing Then
+            coords = vertex.GetPoint
+            Set pt = math.CreatePoint(coords)
+            Set pt = pt.MultiplyTransform(placement)
+            Set pt = pt.MultiplyTransform(v.ModelToViewTransform)
+            coords = pt.ArrayData
+            If Abs(coords(idx) - ring(axis)) <= 0.00005 * v.ScaleDecimal Then
+                Set StationVertex = vertex
+                Exit Function
+            End If
+        End If
+    Next
 End Function
 
 Private Function SelectRing(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks.View, _
-                            ByVal ring As Collection, ByVal appendSelection As Boolean) As Boolean
-    Dim raw As SldWorks.Edge, localEdge As SldWorks.Edge, modelEdge As SldWorks.Edge
-    Dim drawingEdge As SldWorks.Edge, occurrence As SldWorks.Component2, part As SldWorks.ModelDoc2
+                            ByVal ring As Collection, ByVal appendSelection As Boolean, Optional ByVal stationAxis As String = "") As Boolean
+    Dim raw As SldWorks.Entity, localEdge As SldWorks.Entity, modelEdge As SldWorks.Entity
+    Dim drawingEdge As SldWorks.Entity, occurrence As SldWorks.Component2, part As SldWorks.ModelDoc2
     Dim manager As SldWorks.SelectionMgr, required As Long
-    Set raw = ring("edge")
+    If Len(stationAxis) > 0 Then Set raw = StationVertex(ring, stationAxis, v)
+    If raw Is Nothing Then Set raw = ring("edge")
     Set manager = doc.SelectionManager
     required = manager.GetSelectedObjectCount2(-1) + 1
     ' Different releases expose visible entities in drawing, assembly or part context.
@@ -250,7 +284,7 @@ Private Function SelectRing(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks
     End If
 End Function
 
-Private Function TryRingEdge(ByVal candidate As SldWorks.Edge, ByVal manager As SldWorks.SelectionMgr, _
+Private Function TryRingEdge(ByVal candidate As SldWorks.Entity, ByVal manager As SldWorks.SelectionMgr, _
                              ByVal v As SldWorks.View, ByVal appendSelection As Boolean, ByVal required As Long) As Boolean
     Dim ent As SldWorks.Entity, data As SldWorks.SelectData
     If candidate Is Nothing Then Exit Function
@@ -274,27 +308,34 @@ Private Function PutDim(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks.Vie
     If a Is Nothing Then Exit Function
     doc.ClearSelection2 True
     dimFailure = "base selection"
-    If Not SelectRing(doc, v, a, False) Then Exit Function
+    Dim stationAxis As String
+    If axis <> "dia" Then stationAxis = axis
+    If Not SelectRing(doc, v, a, False, stationAxis) Then Exit Function
+    Dim requested As Long, apiResult As Long
     If axis = "dia" Then
+        requested = swDiameterDimension
         expected = 2 * a("radius")
-        Set disp = doc.AddDiameterDimension2(x, y, 0#)
     Else
         dimFailure = "missing target"
         If b Is Nothing Then Exit Function
         dimFailure = "target selection"
-        If Not SelectRing(doc, v, b, True) Then Exit Function
+        If Not SelectRing(doc, v, b, True, stationAxis) Then Exit Function
         expected = Abs(b(axis) - a(axis)) / v.ScaleDecimal
         If axis = "x" Then
-            Set disp = doc.AddHorizontalDimension2(x, y, 0#)
+            requested = swHorLinearDimension
         Else
-            Set disp = doc.AddVerticalDimension2(x, y, 0#)
+            requested = swVertLinearDimension
         End If
     End If
-    dimFailure = "SOLIDWORKS declined insertion"
+    Set disp = doc.Extension.AddSpecificDimension(x, y, 0#, requested, apiResult)
+    dimFailure = "insertion status " & CStr(apiResult)
     If disp Is Nothing Then Exit Function
     Set dimObj = disp.GetDimension2(0)
     dimFailure = "dimension value unavailable"
-    If Not dimObj Is Nothing Then
+    If disp.Type2 <> requested And Not (axis <> "dia" And disp.Type2 = swLinearDimension) Then
+        dimFailure = "unexpected dimension type " & CStr(disp.Type2)
+    ElseIf Not dimObj Is Nothing Then
+        If axis = "dia" Then disp.DisplayAsLinear = True
         If axis <> "dia" Then
             Dim endpoint As Long, condition As Long
             For endpoint = 1 To 2
