@@ -3,7 +3,59 @@ Option Explicit
 
 Private stage As String
 Private dimFailure As String
-Private Const revision As String = "2.0"
+Private Const revision As String = "2.1"
+
+Private logFS As Object
+Private logPath As String
+Private logIssue As String
+
+Private Sub StartLog()
+    On Error GoTo Failed
+    Dim folder As String, shell As Object, stream As Object
+    logPath = ""
+    logIssue = ""
+    Set shell = CreateObject("WScript.Shell")
+    Set logFS = CreateObject("Scripting.FileSystemObject")
+    folder = shell.SpecialFolders("MyDocuments")
+    If Len(folder) = 0 Then Err.Raise 5, , "Documents folder unavailable"
+    Dim name As String
+    name = "PipeDrawing_" & Format$(Now, "yyyymmdd_hhnnss") & "_" & logFS.GetBaseName(logFS.GetTempName) & ".txt"
+    Dim destination As String
+    destination = logFS.BuildPath(folder, name)
+    Set stream = logFS.CreateTextFile(destination, False, True)
+    logPath = destination
+    stream.WriteLine "PipeDrawing " & revision
+    stream.Close
+    Exit Sub
+Failed:
+    logIssue = Err.Description
+End Sub
+
+Private Sub Trace(ByVal message As String)
+    On Error GoTo Failed
+    Dim stream As Object
+    Debug.Print message
+    If Len(logPath) = 0 Or Len(logIssue) > 0 Then Exit Sub
+    Set stream = logFS.OpenTextFile(logPath, 8, False, -1)
+    stream.WriteLine Format$(Now, "hh:nn:ss") & " | " & message
+    stream.Close
+    Exit Sub
+Failed:
+    logIssue = Err.Description
+End Sub
+
+Private Function LogLocation() As String
+    LogLocation = logPath
+    If Len(logIssue) > 0 Then LogLocation = LogLocation & vbCrLf & "Log write error: " & logIssue
+End Function
+
+Private Function RingInfo(ByVal r As Collection) As String
+    If r Is Nothing Then
+        RingInfo = "(none)"
+    Else
+        RingInfo = r("component") & " | sheet x,y,z (m)=" & r("x") & "," & r("y") & "," & r("z") & " | radius (m)=" & r("radius")
+    End If
+End Function
 
 Private Function HasItems(ByVal values As Variant) As Boolean
     On Error GoTo EmptyArray
@@ -38,7 +90,9 @@ Public Sub main()
     Dim front As SldWorks.View, iso As SldWorks.View
     Dim sheet As SldWorks.Sheet, w As Double, h As Double
     Dim template As String, path As String, config As String
+    StartLog
     stage = "assembly"
+    Trace "Stage: " & stage
     Set sw = Application.SldWorks
     Set asm = sw.ActiveDoc
     If asm Is Nothing Then Err.Raise 5, , "Open the piping assembly."
@@ -46,48 +100,66 @@ Public Sub main()
     path = asm.GetPathName
     If Len(path) = 0 Then Err.Raise 5, , "Save the assembly first."
     config = asm.ConfigurationManager.ActiveConfiguration.Name
+    Trace "Assembly=" & path & " | config=" & config & " | SW=" & sw.RevisionNumber
     template = sw.GetUserPreferenceStringValue(swDefaultTemplateDrawing)
     stage = "drawing template"
+    Trace "Stage: " & stage
     If Len(template) = 0 Then Err.Raise 5, , "Choose a default drawing template in SOLIDWORKS."
     Set doc = sw.NewDocument(template, 0, 0#, 0#)
     If doc Is Nothing Then Err.Raise 5, , "Check the default drawing template."
     Set drw = doc
     stage = "drawing sheet"
+    Trace "Stage: " & stage
     Set sheet = drw.GetCurrentSheet
     If sheet Is Nothing Then Err.Raise 5, , "No active drawing sheet."
     sheet.GetSize w, h
     If w <= 0 Or h <= 0 Then Err.Raise 5, , "Invalid sheet size."
     stage = "front view"
+    Trace "Stage: " & stage
     Set front = InsertStandardView(drw, path, w * 0.68, h * 0.53, _
         Array("*Front", "*" & ChrW(1057) & ChrW(1087) & ChrW(1077) & ChrW(1088) & ChrW(1077) & ChrW(1076) & ChrW(1080)))
     stage = "front configuration"
+    Trace "Stage: " & stage
     front.ReferencedConfiguration = config
     stage = "isometric view"
+    Trace "Stage: " & stage
     Set iso = InsertStandardView(drw, path, w * 0.24, h * 0.53, _
         Array("*Isometric", "*" & ChrW(1048) & ChrW(1079) & ChrW(1086) & ChrW(1084) & ChrW(1077) & ChrW(1090) & ChrW(1088) & ChrW(1080) & ChrW(1103)))
     stage = "isometric configuration"
+    Trace "Stage: " & stage
     iso.ReferencedConfiguration = config
     stage = "view scales 1:5"
+    Trace "Stage: " & stage
     front.UseSheetScale = False
     front.ScaleDecimal = 0.2
     iso.UseSheetScale = False
     iso.ScaleDecimal = 0.2
     ' A False return means the mode was not reset (including an unchanged mode).
     stage = "view styles"
+    Trace "Stage: " & stage
     Call front.SetDisplayMode4(False, swHIDDEN, False, False, True)
     Call iso.SetDisplayMode4(False, swSHADED, False, True, True)
     stage = "front projected dimensions"
+    Trace "Stage: " & stage
     front.ProjectedDimensions = True
     stage = "rebuild"
+    Trace "Stage: " & stage
     doc.EditRebuild3
     stage = "front view geometry"
+    Trace "Stage: " & stage
     If StrComp(front.ReferencedConfiguration, config, vbTextCompare) <> 0 Or StrComp(iso.ReferencedConfiguration, config, vbTextCompare) <> 0 Then Err.Raise 5, , "Drawing view configuration mismatch."
     If Abs(front.ScaleDecimal - 0.2) > 0.000001 Or Abs(iso.ScaleDecimal - 0.2) > 0.000001 Then Err.Raise 5, , "Expected both view scales to be 1:5."
     ' SelectRing supplies the target view through SelectData for each edge.
+    Trace "Front=" & front.GetName2 & " scale=" & front.ScaleDecimal & " | iso scale=" & iso.ScaleDecimal
     AddPipeDimensions sw, doc, front, asm
+    Trace "SUCCESS"
+    MsgBox "OK" & vbCrLf & LogLocation(), vbInformation, "PipeDrawing"
     Exit Sub
 Failed:
-    MsgBox "PipeDrawing " & revision & " | " & stage & vbCrLf & "Error " & CStr(Err.Number) & ": " & Err.Description, vbExclamation, "PipeDrawing"
+    Dim failure As String
+    failure = stage & vbCrLf & "Error " & CStr(Err.Number) & ": " & Err.Description
+    Trace "FAILED | " & failure
+    MsgBox failure & vbCrLf & LogLocation(), vbExclamation, "PipeDrawing " & revision
 End Sub
 
 Private Function InsertStandardView(ByVal drawing As SldWorks.DrawingDoc, ByVal modelPath As String, _
@@ -137,6 +209,7 @@ Private Sub AddPipeDimensions(ByVal sw As SldWorks.SldWorks, ByVal doc As SldWor
         Set c = parts(i)
         If c Is Nothing Then GoTo NextComponent
         stage = "front geometry | " & c.Name2
+        Trace "Stage: " & stage
         kind = PartKind(c)
         If Len(kind) > 0 Then
             Set sourceComponent = SourceOccurrence(c, occurrences)
@@ -177,6 +250,7 @@ Private Sub AddPipeDimensions(ByVal sw As SldWorks.SldWorks, ByVal doc As SldWor
                         r.Add c.Name2, "component"
                         r.Add kind, "kind"
                         rings.Add r
+                        Trace "Candidate " & kind & " | " & RingInfo(r)
                     End If
 NextEdge:
                 Next
@@ -186,6 +260,7 @@ NextEdge:
 NextComponent:
     Next
     stage = "dimension placement"
+    Trace "Stage: " & stage
     PlaceDimensions doc, v, rings
 End Sub
 
@@ -261,6 +336,7 @@ Private Function SelectRing(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks
     Dim manager As SldWorks.SelectionMgr, required As Long
     If Len(stationAxis) > 0 Then Set raw = StationVertex(ring, stationAxis, v)
     If raw Is Nothing Then Set raw = ring("edge")
+    Trace "Selection candidate=" & TypeName(raw) & " | append=" & appendSelection
     Set manager = doc.SelectionManager
     required = manager.GetSelectedObjectCount2(-1) + 1
     ' Different releases expose visible entities in drawing, assembly or part context.
@@ -304,22 +380,23 @@ End Function
 
 Private Function PutDim(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks.View, ByVal a As Collection, ByVal b As Collection, ByVal axis As String, ByVal x As Double, ByVal y As Double) As Boolean
     Dim disp As SldWorks.DisplayDimension, dimObj As SldWorks.Dimension, expected As Double
+    Trace "Dimension axis=" & axis & " | base=" & RingInfo(a) & " | target=" & RingInfo(b)
     dimFailure = "missing base"
-    If a Is Nothing Then Exit Function
+    If a Is Nothing Then GoTo ReportResult
     doc.ClearSelection2 True
     dimFailure = "base selection"
     Dim stationAxis As String
     If axis <> "dia" Then stationAxis = axis
-    If Not SelectRing(doc, v, a, False, stationAxis) Then Exit Function
+    If Not SelectRing(doc, v, a, False, stationAxis) Then GoTo ReportResult
     Dim requested As Long, apiResult As Long
     If axis = "dia" Then
         requested = swDiameterDimension
         expected = 2 * a("radius")
     Else
         dimFailure = "missing target"
-        If b Is Nothing Then Exit Function
+        If b Is Nothing Then GoTo ReportResult
         dimFailure = "target selection"
-        If Not SelectRing(doc, v, b, True, stationAxis) Then Exit Function
+        If Not SelectRing(doc, v, b, True, stationAxis) Then GoTo ReportResult
         expected = Abs(b(axis) - a(axis)) / v.ScaleDecimal
         If axis = "x" Then
             requested = swHorLinearDimension
@@ -327,10 +404,14 @@ Private Function PutDim(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks.Vie
             requested = swVertLinearDimension
         End If
     End If
+    Trace "Requested type=" & requested & " | expected mm=" & expected * 1000
     Set disp = doc.Extension.AddSpecificDimension(x, y, 0#, requested, apiResult)
     dimFailure = "insertion status " & CStr(apiResult)
-    If disp Is Nothing Then Exit Function
+    Trace "Insertion status=" & apiResult
+    If disp Is Nothing Then GoTo ReportResult
+    Trace "Actual type=" & disp.Type2
     Set dimObj = disp.GetDimension2(0)
+    If Not dimObj Is Nothing Then Trace "Initial SystemValue (SI)=" & dimObj.SystemValue
     dimFailure = "dimension value unavailable"
     If disp.Type2 <> requested And Not (axis <> "dia" And disp.Type2 = swLinearDimension) Then
         dimFailure = "unexpected dimension type " & CStr(disp.Type2)
@@ -345,13 +426,22 @@ Private Function PutDim(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks.Vie
                 End If
             Next
         End If
+        Trace "Final measured mm=" & dimObj.SystemValue * 1000
         PutDim = Abs(dimObj.SystemValue - expected) < 0.0001
         If Not PutDim Then dimFailure = "expected " & Format$(1000 * expected, "0.##") & " mm, got " & Format$(1000 * dimObj.SystemValue, "0.##") & " mm"
     End If
     If Not PutDim Then
-        If Not RemoveCreatedDimension(doc, disp) Then
+        If RemoveCreatedDimension(doc, disp) Then
+            Trace "Unverified annotation removed"
+        Else
             dimFailure = dimFailure & "; could not confirm removal, check this annotation"
         End If
+    End If
+ReportResult:
+    If PutDim Then
+        Trace "Dimension OK"
+    Else
+        Trace "Dimension FAILED | " & dimFailure
     End If
 End Function
 
@@ -426,9 +516,11 @@ Private Sub PlaceDimensions(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks
     For Each r In stations
         level = level + 1
         stage = "branch dimension | " & r("component")
+        Trace "Stage: " & stage
         If Not PutDim(doc, v, leftEnd, r, "x", (leftEnd("x") + r("x")) / 2, outline(1) - 0.007 * level) Then missed = missed & vbCrLf & r("component") & " - " & dimFailure
     Next
     stage = "pipe and flange dimensions"
+    Trace "Stage: " & stage
     If level = 0 Then missed = missed & " branches"
     If Not PutDim(doc, v, leftEnd, rightEnd, "x", (leftEnd("x") + rightEnd("x")) / 2, outline(1) - 0.007 * (level + 1)) Then missed = missed & vbCrLf & "horizontal pipe" & " - " & dimFailure
     If Not PutDim(doc, v, bottomEnd, topEnd, "y", outline(0) - 0.007, (bottomEnd("y") + topEnd("y")) / 2) Then missed = missed & vbCrLf & "vertical pipe" & " - " & dimFailure
