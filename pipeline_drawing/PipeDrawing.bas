@@ -2,6 +2,33 @@ Attribute VB_Name = "PipeDrawing"
 Option Explicit
 
 Private stage As String
+Private Const revision As String = "1.4"
+
+Private Function HasItems(ByVal values As Variant) As Boolean
+    On Error GoTo EmptyArray
+    If IsArray(values) Then HasItems = UBound(values) >= LBound(values)
+EmptyArray:
+End Function
+
+Private Function SourceOccurrence(ByVal displayed As SldWorks.Component2, ByRef occurrences As Variant) As SldWorks.Component2
+    Dim candidate As SldWorks.Component2, matched As SldWorks.Component2
+    Dim item As Variant, fullName As String, modelName As String, bestLength As Long
+    fullName = "/" & displayed.Name2
+    For Each item In occurrences
+        Set candidate = item
+        If Not candidate Is Nothing Then
+            modelName = "/" & candidate.Name2
+            If Len(modelName) >= bestLength And StrComp(Right$(fullName, Len(modelName)), modelName, vbTextCompare) = 0 Then
+                If StrComp(candidate.GetPathName, displayed.GetPathName, vbTextCompare) = 0 Then
+                    If Len(modelName) = bestLength Then Err.Raise 5, , "Ambiguous component: " & fullName
+                    Set matched = candidate
+                    bestLength = Len(modelName)
+                End If
+            End If
+        End If
+    Next
+    Set SourceOccurrence = matched
+End Function
 
 Public Sub main()
     On Error GoTo Failed
@@ -20,6 +47,7 @@ Public Sub main()
     config = asm.ConfigurationManager.ActiveConfiguration.Name
     template = sw.GetUserPreferenceStringValue(swDefaultTemplateDrawing)
     stage = "drawing template"
+    If Len(template) = 0 Then Err.Raise 5, , "Choose a default drawing template in SOLIDWORKS."
     Set doc = sw.NewDocument(template, 0, 0#, 0#)
     If doc Is Nothing Then Err.Raise 5, , "Check the default drawing template."
     Set drw = doc
@@ -27,6 +55,7 @@ Public Sub main()
     Set sheet = drw.GetCurrentSheet
     If sheet Is Nothing Then Err.Raise 5, , "No active drawing sheet."
     sheet.GetSize w, h
+    If w <= 0 Or h <= 0 Then Err.Raise 5, , "Invalid sheet size."
     stage = "front view"
     Set front = InsertStandardView(drw, path, w * 0.68, h * 0.53, _
         Array("*Front", "*" & ChrW(1057) & ChrW(1087) & ChrW(1077) & ChrW(1088) & ChrW(1077) & ChrW(1076) & ChrW(1080)))
@@ -40,10 +69,12 @@ Public Sub main()
     stage = "rebuild"
     doc.EditRebuild3
     stage = "front view geometry"
-    AddPipeDimensions sw, doc, front
+    If StrComp(front.ReferencedConfiguration, config, vbTextCompare) <> 0 Or StrComp(iso.ReferencedConfiguration, config, vbTextCompare) <> 0 Then Err.Raise 5, , "Drawing view configuration mismatch."
+    If front.ScaleDecimal <= 0 Then Err.Raise 5, , "Invalid front view scale."
+    AddPipeDimensions sw, doc, front, asm
     Exit Sub
 Failed:
-    MsgBox "PipeDrawing | " & stage & vbCrLf & "Error " & CStr(Err.Number) & ": " & Err.Description, vbExclamation, "PipeDrawing"
+    MsgBox "PipeDrawing " & revision & " | " & stage & vbCrLf & "Error " & CStr(Err.Number) & ": " & Err.Description, vbExclamation, "PipeDrawing"
 End Sub
 
 Private Function InsertStandardView(ByVal drawing As SldWorks.DrawingDoc, ByVal modelPath As String, _
@@ -66,40 +97,43 @@ End Function
 Private Function PartKind(ByVal c As SldWorks.Component2) As String
     Dim n As String
     n = LCase$(Mid$(c.GetPathName, InStrRev(c.GetPathName, "\") + 1))
+    If Right$(n, 7) <> ".sldprt" Then Exit Function
     If Left$(n, 5) = (ChrW(1090) & ChrW(1088) & ChrW(1091) & ChrW(1073) & ChrW(1072)) Then PartKind = "pipe"
     If Left$(n, 6) = (ChrW(1092) & ChrW(1083) & ChrW(1072) & ChrW(1085) & ChrW(1077) & ChrW(1094)) Then PartKind = "flange"
     If Left$(n, 5) = (ChrW(1084) & ChrW(1091) & ChrW(1092) & ChrW(1090) & ChrW(1072)) Or Left$(n, 6) = (ChrW(1088) & ChrW(1077) & ChrW(1079) & ChrW(1100) & ChrW(1073) & ChrW(1072)) Then PartKind = "branch"
 End Function
 
-Private Sub AddPipeDimensions(ByVal sw As SldWorks.SldWorks, ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks.View)
+Private Sub AddPipeDimensions(ByVal sw As SldWorks.SldWorks, ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks.View, ByVal assemblyModel As SldWorks.ModelDoc2)
     Dim parts As Variant, edges As Variant, i As Long, j As Long
     Dim c As SldWorks.Component2, e As SldWorks.Edge, curve As SldWorks.Curve
     Dim mu As SldWorks.MathUtility, pt As SldWorks.MathPoint, p As Variant, xyz As Variant
     Dim rings As New Collection, r As Collection, kind As String
     Dim placement As SldWorks.MathTransform, projection As SldWorks.MathTransform
     Dim sourceAssembly As SldWorks.AssemblyDoc, sourceComponent As SldWorks.Component2
-    Set sourceAssembly = v.ReferencedDocument
+    Dim occurrences As Variant
+    Set sourceAssembly = assemblyModel
+    occurrences = sourceAssembly.GetComponents(False)
+    If Not HasItems(occurrences) Then Err.Raise 5, , "Assembly contains no accessible components."
     Set projection = v.ModelToViewTransform
     If projection Is Nothing Then Err.Raise 5, , "Front view has no model transform."
     Set mu = sw.GetMathUtility
     If mu Is Nothing Then Err.Raise 5, , "Math utility unavailable."
     parts = v.GetVisibleComponents
-    If IsEmpty(parts) Then Err.Raise 5, , "No visible components in front view."
+    If Not HasItems(parts) Then Err.Raise 5, , "No visible components in front view."
     For i = LBound(parts) To UBound(parts)
         Set c = parts(i)
         If c Is Nothing Then GoTo NextComponent
         stage = "front geometry | " & c.Name2
         kind = PartKind(c)
         If Len(kind) > 0 Then
-            Set placement = c.Transform2
-            If placement Is Nothing Then
-                If Not sourceAssembly Is Nothing Then
-                    Set sourceComponent = sourceAssembly.GetComponentByName(c.Name2)
-                    If Not sourceComponent Is Nothing Then Set placement = sourceComponent.Transform2
-                End If
-            End If
+            Set sourceComponent = SourceOccurrence(c, occurrences)
+            Set placement = Nothing
+            If Not sourceComponent Is Nothing Then Set placement = sourceComponent.Transform2
+            If placement Is Nothing Then Set placement = c.Transform2
             edges = v.GetVisibleEntities2(c, swViewEntityType_Edge)
-            If IsArray(edges) Then
+            Dim previousCount As Long
+            previousCount = rings.Count
+            If HasItems(edges) Then
                 For j = LBound(edges) To UBound(edges)
                     Set e = edges(j)
                     If e Is Nothing Then GoTo NextEdge
@@ -123,6 +157,7 @@ Private Sub AddPipeDimensions(ByVal sw As SldWorks.SldWorks, ByVal doc As SldWor
                         r.Add e, "edge"
                         r.Add CDbl(xyz(0)), "x"
                         r.Add CDbl(xyz(1)), "y"
+                        r.Add CDbl(xyz(2)), "z"
                         r.Add CDbl(p(6)), "radius"
                         r.Add c.Name2, "component"
                         r.Add kind, "kind"
@@ -131,6 +166,7 @@ Private Sub AddPipeDimensions(ByVal sw As SldWorks.SldWorks, ByVal doc As SldWor
 NextEdge:
                 Next
             End If
+            If rings.Count = previousCount Then Err.Raise 5, , "No visible circular edges on " & c.Name2
         End If
 NextComponent:
     Next
@@ -155,7 +191,7 @@ Private Function FlangeEnd(ByVal rings As Collection, ByVal pipeEnd As Collectio
     For Each r In rings
         If r("kind") = "flange" Then
             gap = r(axis) - pipeEnd(axis)
-            If Abs(r(cross) - pipeEnd(cross)) < 0.0002 * viewScale And gap >= -0.0002 * viewScale And gap < best Then
+            If Abs(r("z") - pipeEnd("z")) < 0.0002 * viewScale And Abs(r(cross) - pipeEnd(cross)) < 0.0002 * viewScale And gap >= -0.0002 * viewScale And gap < best Then
                 best = gap
                 Set nearest = r
             End If
@@ -164,7 +200,7 @@ Private Function FlangeEnd(ByVal rings As Collection, ByVal pipeEnd As Collectio
     If nearest Is Nothing Then Exit Function
     ' Ignore bolt-hole circles when looking for the mating face.
     For Each r In rings
-        If r("component") = nearest("component") And Abs(r(cross) - pipeEnd(cross)) < 0.0002 * viewScale Then
+        If r("component") = nearest("component") And Abs(r("z") - pipeEnd("z")) < 0.0002 * viewScale And Abs(r(cross) - pipeEnd(cross)) < 0.0002 * viewScale Then
             If r(axis) > nearest(axis) Then Set nearest = r
         End If
     Next
@@ -191,13 +227,14 @@ Private Function PutDim(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks.Vie
     End If
     If disp Is Nothing Then Exit Function
     Set dimObj = disp.GetDimension2(0)
-    If dimObj Is Nothing Then Err.Raise 5, , "Cannot read the created dimension."
-    PutDim = Abs(dimObj.SystemValue - expected) < 0.0001
+    If Not dimObj Is Nothing Then PutDim = Abs(dimObj.SystemValue - expected) < 0.0001
     If Not PutDim Then
         Dim ann As SldWorks.Annotation
         Set ann = disp.GetAnnotation
         doc.ClearSelection2 True
-        If ann.Select3(False, Nothing) Then doc.EditDelete
+        If ann Is Nothing Then Err.Raise 5, , "Cannot remove unverified dimension."
+        If Not ann.Select3(False, Nothing) Then Err.Raise 5, , "Cannot select unverified dimension for removal."
+        If Not doc.Extension.DeleteSelection2(0) Then Err.Raise 5, , "Cannot remove unverified dimension."
     End If
 End Function
 
@@ -213,12 +250,18 @@ Private Sub PlaceDimensions(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks
             dx = hi("x") - lo("x")
             dy = Abs(hi("y") - lo("y"))
             If dx > 0.001 * v.ScaleDecimal And dy < 0.0002 * v.ScaleDecimal Then
+                If Not leftEnd Is Nothing Then
+                    If leftEnd("component") <> lo("component") Then Err.Raise 5, , "Multiple horizontal pipe runs in this view."
+                End If
                 Set leftEnd = lo
                 Set rightEnd = hi
             Else
                 Set lo = EndRing(rings, r, "y", -1)
                 Set hi = EndRing(rings, r, "y", 1)
                 If hi("y") - lo("y") > 0.001 * v.ScaleDecimal And Abs(hi("x") - lo("x")) < 0.0002 * v.ScaleDecimal Then
+                    If Not bottomEnd Is Nothing Then
+                        If bottomEnd("component") <> lo("component") Then Err.Raise 5, , "Multiple vertical pipe runs in this view."
+                    End If
                     Set bottomEnd = lo
                     Set topEnd = hi
                 End If
@@ -227,18 +270,33 @@ Private Sub PlaceDimensions(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks
     Next
     If leftEnd Is Nothing Or topEnd Is Nothing Then Err.Raise 5, , "Could not identify both straight pipes in front view."
     outline = v.GetOutline
+    If Not HasItems(outline) Then Err.Raise 5, , "Front view outline unavailable."
     Set seen = CreateObject("Scripting.Dictionary")
+    Dim stations As New Collection, existing As Collection, slot As Long
     For Each r In rings
         If r("kind") = "branch" And r("x") > leftEnd("x") And r("x") < rightEnd("x") Then
             Dim key As String
             key = CStr(Round(r("x") / v.ScaleDecimal, 4))
             If Not seen.Exists(key) Then
                 seen.Add key, True
-                level = level + 1
-                If Not PutDim(doc, v, leftEnd, r, "x", (leftEnd("x") + r("x")) / 2, outline(1) - 0.007 * level) Then missed = missed & " branch"
+                For slot = 1 To stations.Count
+                    Set existing = stations(slot)
+                    If existing("x") > r("x") Then Exit For
+                Next
+                If slot > stations.Count Then
+                    stations.Add r
+                Else
+                    stations.Add r, Before:=slot
+                End If
             End If
         End If
     Next
+    For Each r In stations
+        level = level + 1
+        stage = "branch dimension | " & r("component")
+        If Not PutDim(doc, v, leftEnd, r, "x", (leftEnd("x") + r("x")) / 2, outline(1) - 0.007 * level) Then missed = missed & " " & r("component")
+    Next
+    stage = "pipe and flange dimensions"
     If level = 0 Then missed = missed & " branches"
     If Not PutDim(doc, v, leftEnd, rightEnd, "x", (leftEnd("x") + rightEnd("x")) / 2, outline(1) - 0.007 * (level + 1)) Then missed = missed & " horizontal pipe"
     If Not PutDim(doc, v, bottomEnd, topEnd, "y", outline(0) - 0.007, (bottomEnd("y") + topEnd("y")) / 2) Then missed = missed & " vertical pipe"
