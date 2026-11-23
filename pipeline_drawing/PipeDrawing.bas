@@ -3,7 +3,7 @@ Option Explicit
 
 Private stage As String
 Private dimFailure As String
-Private Const revision As String = "1.5"
+Private Const revision As String = "1.6"
 
 Private Function HasItems(ByVal values As Variant) As Boolean
     On Error GoTo EmptyArray
@@ -67,12 +67,20 @@ Public Sub main()
         Array("*Isometric", "*" & ChrW(1048) & ChrW(1079) & ChrW(1086) & ChrW(1084) & ChrW(1077) & ChrW(1090) & ChrW(1088) & ChrW(1080) & ChrW(1103)))
     stage = "isometric configuration"
     iso.ReferencedConfiguration = config
+    stage = "front scale and style"
+    front.UseSheetScale = False
+    front.ScaleDecimal = 0.2
+    If Not front.SetDisplayMode4(False, swHIDDEN, False, False, True) Then Err.Raise 5, , "Cannot apply hidden lines removed."
+    stage = "isometric scale and style"
+    iso.UseSheetScale = False
+    iso.ScaleDecimal = 0.2
+    If Not iso.SetDisplayMode4(False, swSHADED, False, True, True) Then Err.Raise 5, , "Cannot apply shaded with edges."
     stage = "rebuild"
     doc.EditRebuild3
     stage = "front view geometry"
     If StrComp(front.ReferencedConfiguration, config, vbTextCompare) <> 0 Or StrComp(iso.ReferencedConfiguration, config, vbTextCompare) <> 0 Then Err.Raise 5, , "Drawing view configuration mismatch."
-    If front.ScaleDecimal <= 0 Then Err.Raise 5, , "Invalid front view scale."
-    If Not drw.ActivateView(front.GetName2) Then Err.Raise 5, , "Cannot activate front view for dimensioning."
+    If Abs(front.ScaleDecimal - 0.2) > 0.000001 Or Abs(iso.ScaleDecimal - 0.2) > 0.000001 Then Err.Raise 5, , "Expected both view scales to be 1:5."
+    ' SelectRing supplies the target view through SelectData for each edge.
     AddPipeDimensions sw, doc, front, asm
     Exit Sub
 Failed:
