@@ -3,7 +3,7 @@ Option Explicit
 
 Private stage As String
 Private dimFailure As String
-Private Const revision As String = "1.6"
+Private Const revision As String = "1.7"
 
 Private Function HasItems(ByVal values As Variant) As Boolean
     On Error GoTo EmptyArray
@@ -67,14 +67,15 @@ Public Sub main()
         Array("*Isometric", "*" & ChrW(1048) & ChrW(1079) & ChrW(1086) & ChrW(1084) & ChrW(1077) & ChrW(1090) & ChrW(1088) & ChrW(1080) & ChrW(1103)))
     stage = "isometric configuration"
     iso.ReferencedConfiguration = config
-    stage = "front scale and style"
+    stage = "view scales 1:5"
     front.UseSheetScale = False
     front.ScaleDecimal = 0.2
-    If Not front.SetDisplayMode4(False, swHIDDEN, False, False, True) Then Err.Raise 5, , "Cannot apply hidden lines removed."
-    stage = "isometric scale and style"
     iso.UseSheetScale = False
     iso.ScaleDecimal = 0.2
-    If Not iso.SetDisplayMode4(False, swSHADED, False, True, True) Then Err.Raise 5, , "Cannot apply shaded with edges."
+    ' A False return means the mode was not reset (including an unchanged mode).
+    stage = "view styles"
+    Call front.SetDisplayMode4(False, swHIDDEN, False, False, True)
+    Call iso.SetDisplayMode4(False, swSHADED, False, True, True)
     stage = "rebuild"
     doc.EditRebuild3
     stage = "front view geometry"
