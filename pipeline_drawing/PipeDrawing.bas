@@ -1,6 +1,8 @@
 Attribute VB_Name = "PipeDrawing"
 Option Explicit
 
+Private stage As String
+
 Public Sub main()
     On Error GoTo Failed
     Dim sw As SldWorks.SldWorks, asm As SldWorks.ModelDoc2
@@ -8,6 +10,7 @@ Public Sub main()
     Dim front As SldWorks.View, iso As SldWorks.View
     Dim sheet As SldWorks.Sheet, w As Double, h As Double
     Dim template As String, path As String, config As String
+    stage = "assembly"
     Set sw = Application.SldWorks
     Set asm = sw.ActiveDoc
     If asm Is Nothing Then Err.Raise 5, , "Open the piping assembly."
@@ -16,22 +19,31 @@ Public Sub main()
     If Len(path) = 0 Then Err.Raise 5, , "Save the assembly first."
     config = asm.ConfigurationManager.ActiveConfiguration.Name
     template = sw.GetUserPreferenceStringValue(swDefaultTemplateDrawing)
+    stage = "drawing template"
     Set doc = sw.NewDocument(template, 0, 0#, 0#)
     If doc Is Nothing Then Err.Raise 5, , "Check the default drawing template."
     Set drw = doc
+    stage = "drawing sheet"
     Set sheet = drw.GetCurrentSheet
+    If sheet Is Nothing Then Err.Raise 5, , "No active drawing sheet."
     sheet.GetSize w, h
+    stage = "front view"
     Set front = InsertStandardView(drw, path, w * 0.68, h * 0.53, _
         Array("*Front", "*" & ChrW(1057) & ChrW(1087) & ChrW(1077) & ChrW(1088) & ChrW(1077) & ChrW(1076) & ChrW(1080)))
+    stage = "front configuration"
     front.ReferencedConfiguration = config
+    stage = "isometric view"
     Set iso = InsertStandardView(drw, path, w * 0.24, h * 0.53, _
         Array("*Isometric", "*" & ChrW(1048) & ChrW(1079) & ChrW(1086) & ChrW(1084) & ChrW(1077) & ChrW(1090) & ChrW(1088) & ChrW(1080) & ChrW(1103)))
+    stage = "isometric configuration"
     iso.ReferencedConfiguration = config
+    stage = "rebuild"
     doc.EditRebuild3
+    stage = "front view geometry"
     AddPipeDimensions sw, doc, front
     Exit Sub
 Failed:
-    MsgBox Err.Description, vbExclamation, "PipeDrawing"
+    MsgBox "PipeDrawing | " & stage & vbCrLf & "Error " & CStr(Err.Number) & ": " & Err.Description, vbExclamation, "PipeDrawing"
 End Sub
 
 Private Function InsertStandardView(ByVal drawing As SldWorks.DrawingDoc, ByVal modelPath As String, _
@@ -64,18 +76,35 @@ Private Sub AddPipeDimensions(ByVal sw As SldWorks.SldWorks, ByVal doc As SldWor
     Dim c As SldWorks.Component2, e As SldWorks.Edge, curve As SldWorks.Curve
     Dim mu As SldWorks.MathUtility, pt As SldWorks.MathPoint, p As Variant, xyz As Variant
     Dim rings As New Collection, r As Collection, kind As String
+    Dim placement As SldWorks.MathTransform, projection As SldWorks.MathTransform
+    Dim sourceAssembly As SldWorks.AssemblyDoc, sourceComponent As SldWorks.Component2
+    Set sourceAssembly = v.ReferencedDocument
+    Set projection = v.ModelToViewTransform
+    If projection Is Nothing Then Err.Raise 5, , "Front view has no model transform."
     Set mu = sw.GetMathUtility
+    If mu Is Nothing Then Err.Raise 5, , "Math utility unavailable."
     parts = v.GetVisibleComponents
     If IsEmpty(parts) Then Err.Raise 5, , "No visible components in front view."
     For i = LBound(parts) To UBound(parts)
         Set c = parts(i)
+        If c Is Nothing Then GoTo NextComponent
+        stage = "front geometry | " & c.Name2
         kind = PartKind(c)
         If Len(kind) > 0 Then
+            Set placement = c.Transform2
+            If placement Is Nothing Then
+                If Not sourceAssembly Is Nothing Then
+                    Set sourceComponent = sourceAssembly.GetComponentByName(c.Name2)
+                    If Not sourceComponent Is Nothing Then Set placement = sourceComponent.Transform2
+                End If
+            End If
             edges = v.GetVisibleEntities2(c, swViewEntityType_Edge)
             If IsArray(edges) Then
                 For j = LBound(edges) To UBound(edges)
                     Set e = edges(j)
+                    If e Is Nothing Then GoTo NextEdge
                     Set curve = e.GetCurve
+                    If curve Is Nothing Then GoTo NextEdge
                     If curve.IsCircle Then
                         p = curve.CircleParams
                         Dim coords(2) As Double
@@ -83,8 +112,12 @@ Private Sub AddPipeDimensions(ByVal sw As SldWorks.SldWorks, ByVal doc As SldWor
                         coords(1) = p(1)
                         coords(2) = p(2)
                         Set pt = mu.CreatePoint(coords)
-                        Set pt = pt.MultiplyTransform(c.GetTotalTransform(False))
-                        Set pt = pt.MultiplyTransform(v.ModelToViewTransform)
+                        If placement Is Nothing Then Err.Raise 5, , "No component transform for circular edge."
+                        If pt Is Nothing Then Err.Raise 5, , "Invalid edge center."
+                        Set pt = pt.MultiplyTransform(placement)
+                        If pt Is Nothing Then Err.Raise 5, , "Cannot transform edge center to assembly."
+                        Set pt = pt.MultiplyTransform(projection)
+                        If pt Is Nothing Then Err.Raise 5, , "Cannot project center into front view."
                         xyz = pt.ArrayData
                         Set r = New Collection
                         r.Add e, "edge"
@@ -95,10 +128,13 @@ Private Sub AddPipeDimensions(ByVal sw As SldWorks.SldWorks, ByVal doc As SldWor
                         r.Add kind, "kind"
                         rings.Add r
                     End If
+NextEdge:
                 Next
             End If
         End If
+NextComponent:
     Next
+    stage = "dimension placement"
     PlaceDimensions doc, v, rings
 End Sub
 
@@ -155,6 +191,7 @@ Private Function PutDim(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks.Vie
     End If
     If disp Is Nothing Then Exit Function
     Set dimObj = disp.GetDimension2(0)
+    If dimObj Is Nothing Then Err.Raise 5, , "Cannot read the created dimension."
     PutDim = Abs(dimObj.SystemValue - expected) < 0.0001
     If Not PutDim Then
         Dim ann As SldWorks.Annotation
