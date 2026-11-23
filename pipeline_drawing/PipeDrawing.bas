@@ -3,7 +3,7 @@ Option Explicit
 
 Private stage As String
 Private dimFailure As String
-Private Const revision As String = "1.8"
+Private Const revision As String = "1.9"
 
 Private Function HasItems(ByVal values As Variant) As Boolean
     On Error GoTo EmptyArray
@@ -76,6 +76,8 @@ Public Sub main()
     stage = "view styles"
     Call front.SetDisplayMode4(False, swHIDDEN, False, False, True)
     Call iso.SetDisplayMode4(False, swSHADED, False, True, True)
+    stage = "front projected dimensions"
+    front.ProjectedDimensions = True
     stage = "rebuild"
     doc.EditRebuild3
     stage = "front view geometry"
@@ -293,17 +295,38 @@ Private Function PutDim(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks.Vie
     Set dimObj = disp.GetDimension2(0)
     dimFailure = "dimension value unavailable"
     If Not dimObj Is Nothing Then
+        If axis <> "dia" Then
+            Dim endpoint As Long, condition As Long
+            For endpoint = 1 To 2
+                condition = dimObj.GetArcEndCondition(endpoint)
+                If condition = swArcEndConditionMin Or condition = swArcEndConditionMax Then
+                    Call dimObj.SetArcEndCondition(endpoint, swArcEndConditionCenter)
+                End If
+            Next
+        End If
         PutDim = Abs(dimObj.SystemValue - expected) < 0.0001
         If Not PutDim Then dimFailure = "expected " & Format$(1000 * expected, "0.##") & " mm, got " & Format$(1000 * dimObj.SystemValue, "0.##") & " mm"
     End If
     If Not PutDim Then
-        Dim ann As SldWorks.Annotation
-        Set ann = disp.GetAnnotation
-        doc.ClearSelection2 True
-        If ann Is Nothing Then Err.Raise 5, , "Cannot remove unverified dimension."
-        If Not ann.Select3(False, Nothing) Then Err.Raise 5, , "Cannot select unverified dimension for removal."
-        If Not doc.Extension.DeleteSelection2(0) Then Err.Raise 5, , "Cannot remove unverified dimension."
+        If Not RemoveCreatedDimension(doc, disp) Then
+            dimFailure = dimFailure & "; could not confirm removal, check this annotation"
+        End If
     End If
+End Function
+
+Private Function RemoveCreatedDimension(ByVal doc As SldWorks.ModelDoc2, ByVal disp As SldWorks.DisplayDimension) As Boolean
+    On Error GoTo Finished
+    Dim ann As SldWorks.Annotation, manager As SldWorks.SelectionMgr
+    Set ann = disp.GetAnnotation
+    If ann Is Nothing Then Exit Function
+    doc.ClearSelection2 True
+    If Not ann.Select3(False, Nothing) Then Exit Function
+    Set manager = doc.SelectionManager
+    If manager.GetSelectedObjectCount2(-1) <> 1 Then GoTo Finished
+    If manager.GetSelectedObjectType3(1, -1) <> swSelDIMENSIONS Then GoTo Finished
+    RemoveCreatedDimension = doc.Extension.DeleteSelection2(0)
+Finished:
+    doc.ClearSelection2 True
 End Function
 
 Private Sub PlaceDimensions(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks.View, ByVal rings As Collection)
