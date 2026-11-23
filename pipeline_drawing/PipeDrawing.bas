@@ -2,7 +2,8 @@ Attribute VB_Name = "PipeDrawing"
 Option Explicit
 
 Private stage As String
-Private Const revision As String = "1.4"
+Private dimFailure As String
+Private Const revision As String = "1.5"
 
 Private Function HasItems(ByVal values As Variant) As Boolean
     On Error GoTo EmptyArray
@@ -71,6 +72,7 @@ Public Sub main()
     stage = "front view geometry"
     If StrComp(front.ReferencedConfiguration, config, vbTextCompare) <> 0 Or StrComp(iso.ReferencedConfiguration, config, vbTextCompare) <> 0 Then Err.Raise 5, , "Drawing view configuration mismatch."
     If front.ScaleDecimal <= 0 Then Err.Raise 5, , "Invalid front view scale."
+    If Not drw.ActivateView(front.GetName2) Then Err.Raise 5, , "Cannot activate front view for dimensioning."
     AddPipeDimensions sw, doc, front, asm
     Exit Sub
 Failed:
@@ -207,17 +209,36 @@ Private Function FlangeEnd(ByVal rings As Collection, ByVal pipeEnd As Collectio
     Set FlangeEnd = nearest
 End Function
 
+Private Function SelectRing(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks.View, _
+                            ByVal ring As Collection, ByVal appendSelection As Boolean) As Boolean
+    Dim ent As SldWorks.Entity, manager As SldWorks.SelectionMgr, data As SldWorks.SelectData
+    Dim required As Long
+    Set manager = doc.SelectionManager
+    required = manager.GetSelectedObjectCount2(-1) + 1
+    Set ent = ring("edge")
+    Set data = manager.CreateSelectData
+    data.View = v
+    If Not ent.Select4(appendSelection, data) Then
+        If Not v.SelectEntity(ent, appendSelection) Then Exit Function
+    End If
+    SelectRing = (manager.GetSelectedObjectCount2(-1) = required)
+End Function
+
 Private Function PutDim(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks.View, ByVal a As Collection, ByVal b As Collection, ByVal axis As String, ByVal x As Double, ByVal y As Double) As Boolean
     Dim disp As SldWorks.DisplayDimension, dimObj As SldWorks.Dimension, expected As Double
+    dimFailure = "missing base"
     If a Is Nothing Then Exit Function
     doc.ClearSelection2 True
-    If Not v.SelectEntity(a("edge"), False) Then Exit Function
+    dimFailure = "base selection"
+    If Not SelectRing(doc, v, a, False) Then Exit Function
     If axis = "dia" Then
         expected = 2 * a("radius")
         Set disp = doc.AddDiameterDimension2(x, y, 0#)
     Else
+        dimFailure = "missing target"
         If b Is Nothing Then Exit Function
-        If Not v.SelectEntity(b("edge"), True) Then Exit Function
+        dimFailure = "target selection"
+        If Not SelectRing(doc, v, b, True) Then Exit Function
         expected = Abs(b(axis) - a(axis)) / v.ScaleDecimal
         If axis = "x" Then
             Set disp = doc.AddHorizontalDimension2(x, y, 0#)
@@ -225,9 +246,14 @@ Private Function PutDim(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks.Vie
             Set disp = doc.AddVerticalDimension2(x, y, 0#)
         End If
     End If
+    dimFailure = "SOLIDWORKS declined insertion"
     If disp Is Nothing Then Exit Function
     Set dimObj = disp.GetDimension2(0)
-    If Not dimObj Is Nothing Then PutDim = Abs(dimObj.SystemValue - expected) < 0.0001
+    dimFailure = "dimension value unavailable"
+    If Not dimObj Is Nothing Then
+        PutDim = Abs(dimObj.SystemValue - expected) < 0.0001
+        If Not PutDim Then dimFailure = "expected " & Format$(1000 * expected, "0.##") & " mm, got " & Format$(1000 * dimObj.SystemValue, "0.##") & " mm"
+    End If
     If Not PutDim Then
         Dim ann As SldWorks.Annotation
         Set ann = disp.GetAnnotation
@@ -294,23 +320,23 @@ Private Sub PlaceDimensions(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks
     For Each r In stations
         level = level + 1
         stage = "branch dimension | " & r("component")
-        If Not PutDim(doc, v, leftEnd, r, "x", (leftEnd("x") + r("x")) / 2, outline(1) - 0.007 * level) Then missed = missed & " " & r("component")
+        If Not PutDim(doc, v, leftEnd, r, "x", (leftEnd("x") + r("x")) / 2, outline(1) - 0.007 * level) Then missed = missed & vbCrLf & r("component") & " - " & dimFailure
     Next
     stage = "pipe and flange dimensions"
     If level = 0 Then missed = missed & " branches"
-    If Not PutDim(doc, v, leftEnd, rightEnd, "x", (leftEnd("x") + rightEnd("x")) / 2, outline(1) - 0.007 * (level + 1)) Then missed = missed & " horizontal pipe"
-    If Not PutDim(doc, v, bottomEnd, topEnd, "y", outline(0) - 0.007, (bottomEnd("y") + topEnd("y")) / 2) Then missed = missed & " vertical pipe"
+    If Not PutDim(doc, v, leftEnd, rightEnd, "x", (leftEnd("x") + rightEnd("x")) / 2, outline(1) - 0.007 * (level + 1)) Then missed = missed & vbCrLf & "horizontal pipe" & " - " & dimFailure
+    If Not PutDim(doc, v, bottomEnd, topEnd, "y", outline(0) - 0.007, (bottomEnd("y") + topEnd("y")) / 2) Then missed = missed & vbCrLf & "vertical pipe" & " - " & dimFailure
     Set flange = FlangeEnd(rings, rightEnd, "x", "y", v.ScaleDecimal)
-    If Not PutDim(doc, v, bottomEnd, flange, "x", (bottomEnd("x") + rightEnd("x")) / 2, outline(1) - 0.007 * (level + 2)) Then missed = missed & " welded width"
+    If Not PutDim(doc, v, bottomEnd, flange, "x", (bottomEnd("x") + rightEnd("x")) / 2, outline(1) - 0.007 * (level + 2)) Then missed = missed & vbCrLf & "welded width" & " - " & dimFailure
     Set flange = FlangeEnd(rings, topEnd, "y", "x", v.ScaleDecimal)
-    If Not PutDim(doc, v, leftEnd, flange, "y", outline(0) - 0.014, (leftEnd("y") + topEnd("y")) / 2) Then missed = missed & " welded height"
+    If Not PutDim(doc, v, leftEnd, flange, "y", outline(0) - 0.014, (leftEnd("y") + topEnd("y")) / 2) Then missed = missed & vbCrLf & "welded height" & " - " & dimFailure
     Set outer = rightEnd
     For Each r In rings
         If r("component") = rightEnd("component") And Abs(r("x") - rightEnd("x")) < 0.00001 Then
             If r("radius") > outer("radius") Then Set outer = r
         End If
     Next
-    If Not PutDim(doc, v, outer, Nothing, "dia", outline(2) + 0.007, rightEnd("y")) Then missed = missed & " OD"
+    If Not PutDim(doc, v, outer, Nothing, "dia", outline(2) + 0.007, rightEnd("y")) Then missed = missed & vbCrLf & "OD" & " - " & dimFailure
     doc.ClearSelection2 True
     If Len(missed) > 0 Then Err.Raise 5, , "Missing dimensions:" & missed
 End Sub
