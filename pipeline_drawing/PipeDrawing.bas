@@ -3,7 +3,7 @@ Option Explicit
 
 Private stage As String
 Private dimFailure As String
-Private Const revision As String = "1.7"
+Private Const revision As String = "1.8"
 
 Private Function HasItems(ByVal values As Variant) As Boolean
     On Error GoTo EmptyArray
@@ -166,6 +166,7 @@ Private Sub AddPipeDimensions(ByVal sw As SldWorks.SldWorks, ByVal doc As SldWor
                         xyz = pt.ArrayData
                         Set r = New Collection
                         r.Add e, "edge"
+                        If Not sourceComponent Is Nothing Then r.Add sourceComponent, "occurrence"
                         r.Add CDbl(xyz(0)), "x"
                         r.Add CDbl(xyz(1)), "y"
                         r.Add CDbl(xyz(2)), "z"
@@ -220,17 +221,49 @@ End Function
 
 Private Function SelectRing(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks.View, _
                             ByVal ring As Collection, ByVal appendSelection As Boolean) As Boolean
-    Dim ent As SldWorks.Entity, manager As SldWorks.SelectionMgr, data As SldWorks.SelectData
-    Dim required As Long
+    Dim raw As SldWorks.Edge, localEdge As SldWorks.Edge, modelEdge As SldWorks.Edge
+    Dim drawingEdge As SldWorks.Edge, occurrence As SldWorks.Component2, part As SldWorks.ModelDoc2
+    Dim manager As SldWorks.SelectionMgr, required As Long
+    Set raw = ring("edge")
     Set manager = doc.SelectionManager
     required = manager.GetSelectedObjectCount2(-1) + 1
-    Set ent = ring("edge")
+    ' Different releases expose visible entities in drawing, assembly or part context.
+    On Error Resume Next
+    Set occurrence = ring("occurrence")
+    If Not occurrence Is Nothing Then
+        Set part = occurrence.GetModelDoc2
+        If Not part Is Nothing Then Set localEdge = part.Extension.GetCorrespondingEntity2(raw)
+        If localEdge Is Nothing Then Set localEdge = raw
+        Set modelEdge = occurrence.GetCorresponding(localEdge)
+    End If
+    If Not modelEdge Is Nothing Then Set drawingEdge = v.GetCorresponding(modelEdge)
+    If drawingEdge Is Nothing Then Set drawingEdge = v.GetCorresponding(raw)
+    On Error GoTo 0
+    If TryRingEdge(drawingEdge, manager, v, appendSelection, required) Then
+        SelectRing = True
+    ElseIf TryRingEdge(modelEdge, manager, v, appendSelection, required) Then
+        SelectRing = True
+    Else
+        SelectRing = TryRingEdge(raw, manager, v, appendSelection, required)
+    End If
+End Function
+
+Private Function TryRingEdge(ByVal candidate As SldWorks.Edge, ByVal manager As SldWorks.SelectionMgr, _
+                             ByVal v As SldWorks.View, ByVal appendSelection As Boolean, ByVal required As Long) As Boolean
+    Dim ent As SldWorks.Entity, data As SldWorks.SelectData
+    If candidate Is Nothing Then Exit Function
+    Set ent = candidate
     Set data = manager.CreateSelectData
     data.View = v
-    If Not ent.Select4(appendSelection, data) Then
-        If Not v.SelectEntity(ent, appendSelection) Then Exit Function
+    Dim picked As Boolean
+    picked = ent.Select4(appendSelection, data)
+    If manager.GetSelectedObjectCount2(-1) <> required Then picked = v.SelectEntity(ent, appendSelection)
+    If manager.GetSelectedObjectCount2(-1) = required Then
+        Dim selectedView As SldWorks.View
+        Set selectedView = manager.GetSelectedObjectsDrawingView2(required, -1)
+        If Not selectedView Is Nothing Then TryRingEdge = (selectedView.GetName2 = v.GetName2)
+        If Not TryRingEdge Then manager.DeSelect2 required, -1
     End If
-    SelectRing = (manager.GetSelectedObjectCount2(-1) = required)
 End Function
 
 Private Function PutDim(ByVal doc As SldWorks.ModelDoc2, ByVal v As SldWorks.View, ByVal a As Collection, ByVal b As Collection, ByVal axis As String, ByVal x As Double, ByVal y As Double) As Boolean
