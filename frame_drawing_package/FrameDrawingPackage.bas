@@ -1,8 +1,7 @@
 Attribute VB_Name = "FrameDrawingPackage"
 Option Explicit
 
-Private Const VERSION As String = "FrameDrawingPackage P2.10"
-Private Const DRAWING_TEMPLATE As String = ""
+Private Const VERSION As String = "FrameDrawingPackage P2.11"
 Private Const FRAME_TOKEN As String = "рама"
 Private Type FrameTask
     AssemblyConfig As String
@@ -67,7 +66,7 @@ Public Sub main()
         ClearReferences
         Exit Sub
     End If
-    Set drawingModel = host.NewDocument(template, 0, 0#, 0#)
+    Set drawingModel = NewFrameDrawing(template)
     Call FramePackageSupport.Require((drawingModel Is Nothing) = False, "Не создан чертёж по шаблону: " & template)
     Call FramePackageSupport.Require(drawingModel.GetType = swDocDRAWING, "Шаблон не создал документ чертежа.")
     Set drawing = drawingModel
@@ -79,6 +78,11 @@ Public Sub main()
     sheetProps = firstSheet.GetProperties: sheetFormat = firstSheet.GetTemplateName
     Call FramePackageSupport.Require(FramePackageSupport.HasItems(sheetProps), "Не прочитаны свойства листа шаблона.")
     Call FramePackageSupport.Require(LBound(sheetProps) = 0 And UBound(sheetProps) >= 6, "Неполные свойства листа шаблона.")
+    If Len(sheetFormat) > 0 Or CLng(sheetProps(1)) <> swDwgTemplateNone Then
+        sheetFormat = ResolveTemplateFile(sheetFormat, ".slddrt", _
+            host.GetUserPreferenceStringValue(swFileLocationsSheetFormat) & ";" & _
+            host.GetUserPreferenceStringValue(swFileLocationsDocumentTemplates))
+    End If
     firstSheet.GetSize width, height
     Call FramePackageSupport.Require(width >= 0.419 And height >= 0.296, "Для комплекта нужен формат не меньше A3 в альбомной ориентации.")
     FramePackageSupport.HideConstructionGeometry drawingModel
@@ -457,7 +461,7 @@ Private Sub AddSheet(ByVal name As String, ByVal props As Variant, ByVal format 
     Dim drawing As SldWorks.DrawingDoc, templateType As Long, formatPath As String
     Set drawing = drawingModel
     FramePackageSupport.ActivateDocument host, drawingModel
-    templateType = CLng(props(1)): formatPath = format
+    templateType = swDwgTemplateCustom: formatPath = format
     If Len(formatPath) = 0 Then templateType = swDwgTemplateNone
     Dim showDialog As Boolean, failure As String
     showDialog = host.GetUserPreferenceToggle(swDrawingShowSheetFormatDialog)
@@ -477,18 +481,63 @@ Failed:
     Err.Raise vbObjectError + 3510, VERSION, failure
 End Sub
 
-Private Function DrawingTemplatePath() As String
-    Dim path As String
-    path = DRAWING_TEMPLATE
-    If Len(path) = 0 Then path = host.GetUserPreferenceStringValue(swDefaultTemplateDrawing)
-    If Len(path) = 0 Then path = Trim$(InputBox("Укажите полный путь к шаблону чертежа .drwdot:", VERSION))
-    If Len(path) = 0 Then Exit Function
-    Call FramePackageSupport.Require(LCase$(Right$(path, 7)) = ".drwdot", "Нужен шаблон .drwdot.")
-    Dim fs As Object
-    Set fs = CreateObject("Scripting.FileSystemObject")
-    Call FramePackageSupport.Require(fs.FileExists(path), "Не найден шаблон: " & path)
-    DrawingTemplatePath = path
+Private Function NewFrameDrawing(ByVal template As String) As SldWorks.ModelDoc2
+    Dim wasShown As Boolean, failure As String
+    wasShown = host.GetUserPreferenceToggle(swDrawingShowSheetFormatDialog)
+    On Error GoTo Failed
+    If wasShown Then host.SetUserPreferenceToggle swDrawingShowSheetFormatDialog, False
+    Set NewFrameDrawing = host.NewDocument(template, 0, 0#, 0#)
+    If wasShown Then host.SetUserPreferenceToggle swDrawingShowSheetFormatDialog, True
+    Exit Function
+Failed:
+    failure = Err.Description
+    On Error Resume Next
+    If wasShown Then host.SetUserPreferenceToggle swDrawingShowSheetFormatDialog, True
+    On Error GoTo 0
+    Err.Raise vbObjectError + 3511, VERSION, failure
 End Function
+
+Private Function DrawingTemplatePath() As String
+    DrawingTemplatePath = ResolveTemplateFile(host.GetUserPreferenceStringValue(swDefaultTemplateDrawing), _
+        ".drwdot", host.GetUserPreferenceStringValue(swFileLocationsDocumentTemplates))
+End Function
+
+Private Function ResolveTemplateFile(ByVal saved As String, ByVal ext As String, ByVal roots As String) As String
+    Dim fs As Object, matches As Object, folder As Variant, wanted As String, paths As Variant
+    Set fs = CreateObject("Scripting.FileSystemObject")
+    Set matches = CreateObject("Scripting.Dictionary")
+    matches.CompareMode = vbTextCompare
+    saved = Trim$(saved)
+    If LCase$(Right$(saved, Len(ext))) = ext Then
+        If fs.FileExists(saved) Then
+            ResolveTemplateFile = saved
+            Exit Function
+        End If
+        wanted = fs.GetFileName(saved)
+    End If
+    For Each folder In Split(Replace(Replace(roots, vbCr, ";"), vbLf, ";"), ";")
+        If fs.FolderExists(Trim$(CStr(folder))) Then
+            FindTemplateFiles fs.GetFolder(Trim$(CStr(folder))), ext, wanted, matches
+            If matches.Count > 0 And Len(wanted) > 0 Then Exit For
+        End If
+    Next
+    Call FramePackageSupport.Require(matches.Count > 0, "Файл " & wanted & " (" & ext & ") не найден. Папки SOLIDWORKS: " & roots)
+    Call FramePackageSupport.Require(matches.Count = 1, "Найдено несколько файлов " & wanted & " (" & ext & "). Уточните путь в настройках или свойствах листа.")
+    paths = matches.Keys
+    ResolveTemplateFile = CStr(paths(0))
+End Function
+
+Private Sub FindTemplateFiles(ByVal folder As Object, ByVal ext As String, ByVal wanted As String, ByVal matches As Object)
+    Dim item As Object, subfolder As Object
+    For Each item In folder.Files
+        If LCase$(Right$(item.Name, Len(ext))) = ext Then
+            If Len(wanted) = 0 Or StrComp(item.Name, wanted, vbTextCompare) = 0 Then matches(item.Path) = True
+        End If
+    Next
+    For Each subfolder In folder.SubFolders
+        If (subfolder.Attributes And 1024) = 0 Then FindTemplateFiles subfolder, ext, wanted, matches
+    Next
+End Sub
 
 Private Function RestoreSourceState() As String
     On Error GoTo Failed
