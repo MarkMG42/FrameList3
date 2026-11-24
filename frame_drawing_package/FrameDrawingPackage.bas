@@ -1,7 +1,7 @@
 Attribute VB_Name = "FrameDrawingPackage"
 Option Explicit
 
-Private Const VERSION As String = "FrameDrawingPackage P2.9"
+Private Const VERSION As String = "FrameDrawingPackage P2.10"
 Private Const DRAWING_TEMPLATE As String = ""
 Private Const FRAME_TOKEN As String = "рама"
 Private Type FrameTask
@@ -459,9 +459,22 @@ Private Sub AddSheet(ByVal name As String, ByVal props As Variant, ByVal format 
     FramePackageSupport.ActivateDocument host, drawingModel
     templateType = CLng(props(1)): formatPath = format
     If Len(formatPath) = 0 Then templateType = swDwgTemplateNone
+    Dim showDialog As Boolean, failure As String
+    showDialog = host.GetUserPreferenceToggle(swDrawingShowSheetFormatDialog)
+    On Error GoTo Failed
+    If showDialog Then host.SetUserPreferenceToggle swDrawingShowSheetFormatDialog, False
     Call FramePackageSupport.Require(drawing.NewSheet3(name, CLng(props(0)), templateType, CDbl(props(2)), CDbl(props(3)), _
         CBool(props(4)), formatPath, width, height, "Default"), "Не создан лист: " & name)
+    If showDialog Then host.SetUserPreferenceToggle swDrawingShowSheetFormatDialog, True
+    On Error GoTo 0
     FramePackageSupport.ActivateSheet host, drawingModel, name
+    Exit Sub
+Failed:
+    failure = Err.Description
+    On Error Resume Next
+    If showDialog Then host.SetUserPreferenceToggle swDrawingShowSheetFormatDialog, True
+    On Error GoTo 0
+    Err.Raise vbObjectError + 3510, VERSION, failure
 End Sub
 
 Private Function DrawingTemplatePath() As String
